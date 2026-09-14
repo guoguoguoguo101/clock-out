@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>小马精灵图</title>
+  <style>
+    :root { --bg:#f4f6f8; --ink:#1b1e24; --muted:#6b7280; --line:#e5e7eb; --cyan:#00b8d4; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+    main { max-width:1180px; margin:0 auto; padding:36px 24px 80px; }
+    h1 { font-size:30px; margin:0 0 8px; }
+    .lead { color:var(--muted); line-height:1.6; max-width:760px; }
+    h2 { font-size:18px; margin:36px 0 12px; }
+    .strip { width:100%; background:#fff; border:1px solid var(--line); border-radius:16px; padding:12px; }
+    .strip img { width:100%; height:auto; display:block; }
+    .row { display:flex; flex-wrap:wrap; gap:12px; }
+    figure { margin:0; width:160px; background:#fff; border:1px solid var(--line); border-radius:14px; padding:8px; text-align:center; }
+    figure img {
+      width:100%; height:150px; object-fit:contain; border-radius:10px;
+      background:
+        linear-gradient(45deg,#eceff4 25%,transparent 25%),
+        linear-gradient(-45deg,#eceff4 25%,transparent 25%),
+        linear-gradient(45deg,transparent 75%,#eceff4 75%),
+        linear-gradient(-45deg,transparent 75%,#eceff4 75%);
+      background-size:16px 16px; background-position:0 0,0 8px,8px -8px,-8px 0; background-color:#fff;
+    }
+    figcaption { font-size:12px; color:var(--muted); margin-top:6px; }
+    .play { display:flex; gap:28px; flex-wrap:wrap; margin-top:8px; }
+    .stage { width:180px; text-align:center; }
+    .stage .box {
+      width:180px; height:180px; border-radius:16px; border:1px solid var(--line); background:
+        linear-gradient(45deg,#eceff4 25%,transparent 25%),
+        linear-gradient(-45deg,#eceff4 25%,transparent 25%),
+        linear-gradient(45deg,transparent 75%,#eceff4 75%),
+        linear-gradient(-45deg,transparent 75%,#eceff4 75%);
+      background-size:16px 16px; background-position:0 0,0 8px,8px -8px,-8px 0; background-color:#fff;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .stage img { width:160px; height:160px; object-fit:contain; }
+    .stage p { margin:8px 0 0; font-size:13px; color:var(--muted); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>小马 2D 精灵图</h1>
+  <p class="lead">按设定图重绘。每行动作 4 帧，透明 PNG。下面可直接看条带、单帧和循环播放。四角色合集见 <a href="sprites.html">角色精灵图</a>。</p>
+
+  <h2>循环播放</h2>
+  <div class="play" id="play"></div>
+
+  <h2>站立</h2>
+  <div class="strip"><img src="horse-sprites/horse_idle_strip.png" alt="站立条带"></div>
+  <div class="row" id="idle"></div>
+
+  <h2>走路</h2>
+  <div class="strip"><img src="horse-sprites/horse_walk_strip.png" alt="走路条带"></div>
+  <div class="row" id="walk"></div>
+
+  <h2>奔跑</h2>
+  <div class="strip"><img src="horse-sprites/horse_run_strip.png" alt="奔跑条带"></div>
+  <div class="row" id="run"></div>
+
+  <h2>工作</h2>
+  <div class="strip"><img src="horse-sprites/horse_work_strip.png" alt="工作条带"></div>
+  <div class="row" id="work"></div>
+
+  <h2>休息</h2>
+  <div class="strip"><img src="horse-sprites/horse_rest_strip.png" alt="休息条带"></div>
+  <div class="row" id="sleep"></div>
+
+  <h2>上厕所</h2>
+  <div class="strip"><img src="horse-sprites/horse_toilet_strip.png" alt="上厕所条带"></div>
+  <div class="row" id="toilet"></div>
+</main>
+<script>
+  const fig = (name) =>
+    `<figure><img src="horse-sprites/${name}.png" alt="${name}"><figcaption>${name}</figcaption></figure>`;
+  const fill = (id, names) => {
+    document.getElementById(id).innerHTML = names.map(fig).join("");
+  };
+  const groups = {
+    idle: ["idle_0","idle_1","idle_2","idle_3"],
+    walk: ["walk_0","walk_1","walk_2","walk_3"],
+    run: ["run_0","run_1","run_2","run_3"],
+    work: ["work_0","work_1","work_2","work_3"],
+    sleep: ["sleep_0","sleep_1","sleep_2","sleep_3"],
+    toilet: ["toilet_0","toilet_1","toilet_2","toilet_3"],
+  };
+  Object.entries(groups).forEach(([id, names]) => fill(id, names));
+  const labels = { idle:"站立", walk:"走路", run:"奔跑", work:"工作", sleep:"休息", toilet:"上厕所" };
+  const fps = { idle:4, walk:8, run:10, work:5, sleep:4, toilet:5 };
+  const play = document.getElementById("play");
+  Object.entries(groups).forEach(([id, names]) => {
+    const stage = document.createElement("div");
+    stage.className = "stage";
+    stage.innerHTML = `<div class="box"><img alt="${id}"></div><p>${labels[id]}</p>`;
+    const img = stage.querySelector("img");
+    let i = 0;
+    img.src = `horse-sprites/${names[0]}.png`;
+    setInterval(() => {
+      i = (i + 1) % names.length;
+      img.src = `horse-sprites/${names[i]}.png`;
+    }, 1000 / fps[id]);
+    play.appendChild(stage);
+  });
+</script>
+</body>
+</html>

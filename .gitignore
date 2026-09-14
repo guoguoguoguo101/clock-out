@@ -3,6 +3,10 @@
 *.translation
 export_credentials.cfg
 
+# Python
+__pycache__/
+*.pyc
+
 # OS
 Thumbs.db
 Desktop.ini

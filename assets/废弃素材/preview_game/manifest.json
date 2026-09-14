@@ -1,0 +1,113 @@
+{
+  "version": 2,
+  "size": 1024,
+  "transparent": true,
+  "note": "Rebuilt from the horse bible. Independent layers for Spine / dressing.",
+  "body": [
+    "layers/body/front.png",
+    "layers/body/side.png",
+    "layers/body/back.png",
+    "layers/body/sit.png",
+    "layers/body/stand.png",
+    "layers/body/walk_0.png",
+    "layers/body/walk_1.png",
+    "layers/body/walk_2.png",
+    "layers/body/walk_3.png",
+    "layers/body/idle_0.png",
+    "layers/body/idle_1.png",
+    "layers/body/idle_2.png",
+    "layers/body/idle_3.png",
+    "layers/body/run_0.png",
+    "layers/body/run_1.png",
+    "layers/body/run_2.png",
+    "layers/body/run_3.png",
+    "layers/body/cheer.png",
+    "layers/body/think.png",
+    "layers/body/read.png",
+    "layers/body/coffee.png",
+    "layers/body/work.png",
+    "layers/body/sleep.png"
+  ],
+  "scarf_mask": [
+    "layers/scarf/mask_front.png",
+    "layers/scarf/mask_side.png",
+    "layers/scarf/mask_back.png",
+    "layers/scarf/mask_sit.png",
+    "layers/scarf/mask_stand.png",
+    "layers/scarf/mask_walk_0.png",
+    "layers/scarf/mask_walk_1.png",
+    "layers/scarf/mask_walk_2.png",
+    "layers/scarf/mask_walk_3.png",
+    "layers/scarf/mask_idle_0.png",
+    "layers/scarf/mask_idle_1.png",
+    "layers/scarf/mask_idle_2.png",
+    "layers/scarf/mask_idle_3.png",
+    "layers/scarf/mask_run_0.png",
+    "layers/scarf/mask_run_1.png",
+    "layers/scarf/mask_run_2.png",
+    "layers/scarf/mask_run_3.png",
+    "layers/scarf/mask_cheer.png",
+    "layers/scarf/mask_think.png",
+    "layers/scarf/mask_read.png",
+    "layers/scarf/mask_coffee.png",
+    "layers/scarf/mask_work.png",
+    "layers/scarf/mask_sleep.png"
+  ],
+  "scarf_colors": [
+    "cyan",
+    "yellow",
+    "red",
+    "purple",
+    "green",
+    "pink"
+  ],
+  "acts": [
+    "work",
+    "read",
+    "coffee",
+    "think",
+    "cheer",
+    "sleep"
+  ],
+  "props": [
+    "layers/props/desk.png",
+    "layers/props/chair.png",
+    "layers/props/screen.png",
+    "layers/props/zzz.png",
+    "layers/props/coffee.png",
+    "layers/props/paper.png",
+    "layers/props/bulb.png",
+    "layers/props/browser_ui.png",
+    "layers/props/video_ui.png"
+  ],
+  "accessories": [
+    "layers/acc/hat.png",
+    "layers/acc/headset.png",
+    "layers/acc/backpack.png",
+    "layers/acc/crown.png"
+  ],
+  "game_map": {
+    "idle": [
+      "idle_0",
+      "idle_1",
+      "idle_2",
+      "idle_3"
+    ],
+    "walk": [
+      "walk_0",
+      "walk_1",
+      "walk_2",
+      "walk_3"
+    ],
+    "run": [
+      "run_0",
+      "run_1",
+      "run_2",
+      "run_3"
+    ],
+    "WORK": "work",
+    "SLACK": "sleep",
+    "COFFEE": "coffee",
+    "MEETING": "read"
+  }
+}

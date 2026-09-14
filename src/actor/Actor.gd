@@ -2,13 +2,26 @@ extends CharacterBody2D
 class_name Actor
 
 const SNAP_HZ := 15.0
+const Kit := preload("res://src/actor/CharKit.gd")
+const SCARF_SHADER := preload("res://src/actor/scarf.gdshader")
 
 @onready var name_label: Label = $Name
+
+var body_sprite: Sprite2D
+var zzz_label: Label
+var hold_sprite: Sprite2D
+var hours_chip: Label
+var energy_chip: Label
+var prompt_bg: ColorRect
+var prompt_lab: Label
+var bubble_bg: ColorRect
+var bubble_lab: Label
+var bubble_t := 0.0
 
 var slot := 0
 var peer_id := 0
 var kind := Rules.Kind.EMPLOYEE
-var skin := Rules.CharSkin.CAT
+var skin := Rules.CharSkin.HORSE
 var display_name := ""
 
 var hours := Rules.HOURS_START
@@ -21,6 +34,10 @@ var catch_chain := 0.0
 var slack_seen := 0.0
 var occupy_id := ""
 var left_clock := ""
+var talk_progress := 0.0
+var rescue_left := 0.0
+var rescue_slot := -1
+var boost_left := 0.0
 
 var meeting_cd := 0.0
 var kpi_cd := 0.0
@@ -39,6 +56,7 @@ var want_dash := false
 var _sync_acc := 0.0
 var _remote_pos := Vector2.ZERO
 var _facing := Vector2.DOWN
+var _anim_acc := 0.0
 
 
 func setup(p_slot: int, p_peer: int, p_name: String) -> void:
@@ -53,13 +71,14 @@ func setup(p_slot: int, p_peer: int, p_name: String) -> void:
 	motion_mode = MOTION_MODE_FLOATING
 	var cs := get_node("Collision") as CollisionShape2D
 	var sh := CircleShape2D.new()
-	sh.radius = 16
+	sh.radius = 11
 	cs.shape = sh
 	var nl := get_node("Name") as Label
-	nl.position = Vector2(-72, -152)
-	nl.size = Vector2(144, 28)
-	nl.add_theme_font_size_override("font_size", 18)
+	nl.position = Vector2(-36, -78)
+	nl.size = Vector2(72, 18)
+	nl.add_theme_font_size_override("font_size", 11)
 	nl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ensure_sprite()
 
 
 func is_local() -> bool:
@@ -75,24 +94,35 @@ func office() -> OfficeMap:
 
 
 func nearby_action() -> String:
-	if kind != Rules.Kind.EMPLOYEE:
-		return ""
+	if kind == Rules.Kind.BOSS:
+		return _boss_nearby_action()
+	if emp_state == Rules.EmpState.TALK:
+		if Match.is_watched(self):
+			return "约谈中 · 老板盯着，捞不走"
+		return "约谈中 · 等同事捞人"
+	if rescue_left > 0.0:
+		return "正在捞人…"
 	if emp_state == Rules.EmpState.WORK or emp_state == Rules.EmpState.SLACK:
 		return "E 起身    F 摸鱼"
 	if emp_state == Rules.EmpState.COFFEE or emp_state == Rules.EmpState.TOILET:
-		return "E 离开"
+		return "E 撤了"
 	if emp_state == Rules.EmpState.CLOCKING:
-		return "正在去打卡"
+		return "润了 · 去打卡"
 	if emp_state == Rules.EmpState.MEETING:
-		return "开会中"
+		return "被拉去开会 · 救不了"
 	if stand_lock > 0.0:
-		return ""
+		return "刚复盘完 · 先站一会儿"
+	var talk := Match.nearest_talk(global_position, Rules.RESCUE_RANGE)
+	if talk != null:
+		if Match.is_watched(talk):
+			return "老板盯着 · 捞不走"
+		return "E 捞人"
 	var map := office()
 	if map == null:
 		return ""
 	var idx := Rules.employee_index(slot) + 1
 	if global_position.distance_to(map.points["seat_%d" % idx]) < Rules.INTERACT_RANGE:
-		return "E 坐下上班"
+		return "E 坐下干活"
 	for i in 4:
 		var other := i + 1
 		if other == idx:
@@ -101,10 +131,25 @@ func nearby_action() -> String:
 			return "别人的工位"
 	var coffee := map.nearest_free("coffee", global_position)
 	if coffee != "" and global_position.distance_to(map.points[coffee]) < Rules.INTERACT_RANGE:
-		return "E 喝咖啡"
+		return "E 续命（咖啡）"
 	var toilet := map.nearest_free("toilet", global_position)
 	if toilet != "" and global_position.distance_to(map.points[toilet]) < Rules.INTERACT_RANGE:
-		return "E 上厕所"
+		return "E 暂时离线"
+	return ""
+
+
+func _boss_nearby_action() -> String:
+	var talk := Match.nearest_talk(global_position, 220.0)
+	if talk != null and Match.is_watched(talk):
+		return "现场督导中 · 复盘加速"
+	for a in Match.actors.values():
+		var e := a as Actor
+		if not Match.is_catchable(e):
+			continue
+		if global_position.distance_to(e.global_position) <= Rules.CATCH_RANGE:
+			if e.rescue_left > 0.0:
+				return "E 约谈（捞人的也别跑）"
+			return "E 约谈"
 	return ""
 
 
@@ -112,11 +157,205 @@ func remaining_work_sec() -> float:
 	return hours / Rules.WORK_HOURS_PER_SEC
 
 
+func _skin_tex() -> Texture2D:
+	return Kit.tex(skin, "idle_0")
+
+
 func _ready() -> void:
 	_remote_pos = global_position
 	if name_label:
 		name_label.text = display_name
-	queue_redraw()
+	_ensure_sprite()
+	_update_visual(0.0)
+
+
+func _ensure_sprite() -> void:
+	if body_sprite != null:
+		return
+	body_sprite = Sprite2D.new()
+	body_sprite.name = "Body"
+	body_sprite.texture = _skin_tex()
+	body_sprite.centered = false
+	body_sprite.z_index = 1
+	_apply_scarf()
+	add_child(body_sprite)
+	zzz_label = Label.new()
+	zzz_label.text = "z z"
+	zzz_label.visible = false
+	zzz_label.position = Vector2(10, -64)
+	zzz_label.add_theme_font_size_override("font_size", 12)
+	zzz_label.add_theme_color_override("font_color", Color(0.35, 0.35, 0.45))
+	add_child(zzz_label)
+	hold_sprite = Sprite2D.new()
+	hold_sprite.centered = true
+	hold_sprite.z_index = 2
+	hold_sprite.visible = false
+	add_child(hold_sprite)
+	hours_chip = _make_chip(Color(0.22, 0.48, 0.58))
+	energy_chip = _make_chip(Color(0.62, 0.48, 0.12))
+	prompt_bg = ColorRect.new()
+	prompt_bg.color = Color(0.12, 0.14, 0.18, 0.86)
+	prompt_bg.visible = false
+	prompt_bg.z_index = 6
+	prompt_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(prompt_bg)
+	prompt_lab = Label.new()
+	prompt_lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	prompt_lab.add_theme_font_size_override("font_size", 11)
+	prompt_lab.add_theme_color_override("font_color", Color(0.95, 0.97, 0.98))
+	prompt_lab.z_index = 7
+	add_child(prompt_lab)
+	bubble_bg = ColorRect.new()
+	bubble_bg.color = Color(1, 1, 1, 0.92)
+	bubble_bg.visible = false
+	bubble_bg.z_index = 6
+	bubble_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(bubble_bg)
+	bubble_lab = Label.new()
+	bubble_lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	bubble_lab.add_theme_font_size_override("font_size", 12)
+	bubble_lab.add_theme_color_override("font_color", Color(0.18, 0.18, 0.20))
+	bubble_lab.z_index = 7
+	add_child(bubble_lab)
+
+
+func say(text: String, hold := 1.7) -> void:
+	if bubble_lab == null:
+		return
+	bubble_lab.text = text
+	bubble_t = hold
+	bubble_bg.visible = true
+	bubble_lab.visible = true
+
+
+func _apply_scarf() -> void:
+	if body_sprite == null:
+		return
+	if kind != Rules.Kind.EMPLOYEE:
+		body_sprite.material = null
+		return
+	var mat := ShaderMaterial.new()
+	mat.shader = SCARF_SHADER
+	mat.set_shader_parameter("scarf_color", Rules.scarf_color(skin))
+	body_sprite.material = mat
+
+
+func _make_chip(color: Color) -> Label:
+	var lab := Label.new()
+	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lab.add_theme_font_size_override("font_size", 10)
+	lab.add_theme_color_override("font_color", color)
+	lab.position = Vector2(-44, 8)
+	lab.size = Vector2(88, 14)
+	add_child(lab)
+	return lab
+
+
+func _update_visual(delta := 0.0) -> void:
+	if body_sprite == null:
+		return
+	_anim_acc += delta
+	if velocity.x > 10.0:
+		_facing.x = 1.0
+	elif velocity.x < -10.0:
+		_facing.x = -1.0
+	var sitting := emp_state == Rules.EmpState.WORK or emp_state == Rules.EmpState.SLACK or emp_state == Rules.EmpState.COFFEE or emp_state == Rules.EmpState.TOILET or emp_state == Rules.EmpState.MEETING
+	var pose := _anim_pose()
+	var tex: Texture2D = Kit.tex(skin, pose)
+	if tex != null:
+		body_sprite.texture = tex
+	var sz := body_sprite.texture.get_size() if body_sprite.texture else Vector2(1024, 1024)
+	var sc := Rules.BOSS_SPRITE if kind == Rules.Kind.BOSS else Rules.SPRITE_SCALE
+	if sitting:
+		sc *= 0.92
+	sc *= 1024.0 / maxf(sz.y, 1.0)
+	body_sprite.scale = Vector2(sc, sc)
+	body_sprite.offset = Vector2(-sz.x * 0.5, -sz.y + 22.0)
+	body_sprite.flip_h = (not sitting) and _facing.x < 0.0
+	if zzz_label:
+		if emp_state == Rules.EmpState.TALK:
+			zzz_label.visible = true
+			zzz_label.text = "复盘中" if Match.is_watched(self) else "救命"
+			zzz_label.add_theme_color_override("font_color", Color(0.78, 0.18, 0.16))
+		else:
+			zzz_label.visible = false
+			zzz_label.text = "z z"
+			zzz_label.add_theme_color_override("font_color", Color(0.35, 0.35, 0.45))
+	if name_label:
+		name_label.position = Vector2(-40, -sz.y * sc - 18.0)
+	_update_chips(sz.y * sc)
+	_update_world_text(sz.y * sc, delta)
+	if hold_sprite:
+		hold_sprite.visible = false
+
+
+func _anim_pose() -> String:
+	var anim := "idle"
+	match emp_state:
+		Rules.EmpState.WORK:
+			anim = "work"
+		Rules.EmpState.SLACK:
+			anim = "sleep"
+		Rules.EmpState.COFFEE:
+			anim = "work"
+		Rules.EmpState.MEETING:
+			anim = "work"
+		Rules.EmpState.TALK:
+			anim = "idle"
+		Rules.EmpState.TOILET:
+			anim = "toilet"
+		Rules.EmpState.CLOCKING:
+			anim = "run"
+		_:
+			if velocity.length() > 24.0:
+				anim = "run" if dash_left > 0.0 else "walk"
+			else:
+				anim = "idle"
+	var frames: PackedStringArray = Kit.loop_frames(anim)
+	var fps := 10.0 if anim == "run" else (8.0 if anim == "walk" else 5.0)
+	if anim == "sleep":
+		fps = 4.0
+	var i: int = int(_anim_acc * fps) % frames.size()
+	return frames[i]
+
+
+func _update_chips(body_h: float) -> void:
+	if hours_chip:
+		hours_chip.visible = false
+	if energy_chip:
+		energy_chip.visible = false
+	if prompt_bg:
+		prompt_bg.position.y = -body_h - 36.0
+
+
+func _update_world_text(body_h: float, delta: float) -> void:
+	if bubble_t > 0.0:
+		bubble_t = maxf(0.0, bubble_t - delta)
+		if bubble_t <= 0.0:
+			if bubble_bg:
+				bubble_bg.visible = false
+			if bubble_lab:
+				bubble_lab.visible = false
+	if bubble_lab and bubble_lab.visible:
+		var bw := maxf(72.0, bubble_lab.text.length() * 13.0)
+		bubble_lab.size = Vector2(bw, 18)
+		bubble_lab.position = Vector2(-bw * 0.5, -body_h - 58.0)
+		bubble_bg.size = Vector2(bw + 12, 20)
+		bubble_bg.position = Vector2(-bw * 0.5 - 6, -body_h - 60.0)
+	if prompt_lab == null or prompt_bg == null:
+		return
+	var act := nearby_action() if is_local() else ""
+	var show := act != ""
+	prompt_lab.visible = show
+	prompt_bg.visible = show
+	if not show:
+		return
+	prompt_lab.text = act
+	var pw := maxf(56.0, act.length() * 12.0)
+	prompt_lab.size = Vector2(pw, 16)
+	prompt_lab.position = Vector2(-pw * 0.5, -body_h - 36.0)
+	prompt_bg.size = Vector2(pw + 12, 18)
+	prompt_bg.position = Vector2(-pw * 0.5 - 6, -body_h - 38.0)
 
 
 func _physics_process(delta: float) -> void:
@@ -128,6 +367,7 @@ func _physics_process(delta: float) -> void:
 			_broadcast_state()
 	elif not multiplayer.is_server():
 		global_position = global_position.lerp(_remote_pos, 1.0 - exp(-12.0 * delta))
+	_update_visual(delta)
 	queue_redraw()
 
 
@@ -135,6 +375,7 @@ func _server_tick(delta: float) -> void:
 	stand_lock = max(0.0, stand_lock - delta)
 	catch_chain = max(0.0, catch_chain - delta)
 	coffee_buff = max(0.0, coffee_buff - delta)
+	boost_left = max(0.0, boost_left - delta)
 	meeting_cd = max(0.0, meeting_cd - delta)
 	kpi_cd = max(0.0, kpi_cd - delta)
 	dash_cd = max(0.0, dash_cd - delta)
@@ -156,9 +397,12 @@ func _employee_tick(delta: float) -> void:
 		visible = false
 		velocity = Vector2.ZERO
 		return
-	if hours <= 0.0 and emp_state != Rules.EmpState.CLOCKING:
+	if hours <= 0.0 and emp_state != Rules.EmpState.CLOCKING and emp_state != Rules.EmpState.TALK:
 		_begin_clocking()
 	match emp_state:
+		Rules.EmpState.TALK:
+			_tick_talk(delta)
+			return
 		Rules.EmpState.MEETING:
 			meeting_left -= delta
 			energy = max(0.0, energy - Rules.MEETING_ENERGY_PER_SEC * delta)
@@ -179,6 +423,9 @@ func _employee_tick(delta: float) -> void:
 				return
 			if want_interact or input_dir.length() > 0.12:
 				_stand_up()
+				if want_interact:
+					Match.try_rescue(self)
+					return
 			else:
 				_sit_work(delta, false)
 				return
@@ -189,6 +436,9 @@ func _employee_tick(delta: float) -> void:
 				return
 			if want_interact or input_dir.length() > 0.12:
 				_stand_up()
+				if want_interact:
+					Match.try_rescue(self)
+					return
 			else:
 				_sit_work(delta, true)
 				return
@@ -208,7 +458,15 @@ func _employee_tick(delta: float) -> void:
 			else:
 				return
 	# walk
+	if rescue_left > 0.0:
+		if input_dir.length() > 0.12:
+			clear_rescue()
+		elif Match.tick_rescue(self, delta):
+			velocity = Vector2.ZERO
+			return
 	var speed := Rules.EMPLOYEE_SPEED
+	if boost_left > 0.0:
+		speed *= Rules.RESCUE_BOOST_MUL
 	if is_bot():
 		velocity = input_dir.normalized() * speed if input_dir.length() > 0.1 else Vector2.ZERO
 	else:
@@ -228,7 +486,7 @@ func _sit_work(delta: float, slack: bool) -> void:
 		if supervised:
 			slack_seen += delta
 			if slack_seen >= Rules.SLACK_CATCH_DELAY:
-				Match.catch_employee(self, false)
+				Match.catch_employee(self)
 		else:
 			slack_seen = 0.0
 		return
@@ -246,6 +504,8 @@ func _sit_work(delta: float, slack: bool) -> void:
 
 func _try_employee_interact() -> void:
 	if stand_lock > 0.0:
+		return
+	if Match.try_rescue(self):
 		return
 	var map := office()
 	var idx := Rules.employee_index(slot) + 1
@@ -289,6 +549,33 @@ func _clock_out() -> void:
 	Match.on_clock_out(slot)
 
 
+func _tick_talk(delta: float) -> void:
+	velocity = Vector2.ZERO
+	var watched := Match.is_watched(self)
+	var dur := Rules.TALK_WATCH_TIME if watched else Rules.TALK_ALONE_TIME
+	talk_progress = min(1.0, talk_progress + delta / dur)
+	if talk_progress >= 1.0:
+		Match.finish_talk(self)
+
+
+func begin_talk() -> void:
+	_stand_up()
+	emp_state = Rules.EmpState.TALK
+	talk_progress = 0.0
+	clear_rescue()
+
+
+func end_talk_rescued() -> void:
+	emp_state = Rules.EmpState.WALK
+	talk_progress = 0.0
+	slack_seen = 0.0
+
+
+func clear_rescue() -> void:
+	rescue_left = 0.0
+	rescue_slot = -1
+
+
 func apply_catch(repeat: bool, extra_stun: float) -> void:
 	if emp_state == Rules.EmpState.CLOCKING or emp_state == Rules.EmpState.LEFT:
 		return
@@ -297,6 +584,9 @@ func apply_catch(repeat: bool, extra_stun: float) -> void:
 	stand_lock = Rules.CATCH_STAND_LOCK + extra_stun
 	catch_chain = Rules.CATCH_CHAIN_WINDOW
 	slack_seen = 0.0
+	talk_progress = 0.0
+	rescue_left = 0.0
+	rescue_slot = -1
 
 
 func send_to_meeting(seconds: float, meeting_pos: Vector2) -> void:
@@ -305,6 +595,8 @@ func send_to_meeting(seconds: float, meeting_pos: Vector2) -> void:
 	_stand_up()
 	emp_state = Rules.EmpState.MEETING
 	meeting_left = seconds
+	talk_progress = 0.0
+	clear_rescue()
 	global_position = meeting_pos
 
 
@@ -363,7 +655,7 @@ func recv_input(x: float, y: float, interact: bool, slack: bool, meeting: bool, 
 	apply_input(x, y, interact, slack, meeting, kpi, dash)
 
 
-func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float) -> void:
+func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, talk: float = 0.0, rescue: float = 0.0) -> void:
 	_remote_pos = Vector2(px, py)
 	emp_state = st
 	hours = h
@@ -372,75 +664,45 @@ func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool
 	meeting_cd = mcd
 	kpi_cd = kcd
 	dash_cd = dcd
+	talk_progress = talk
+	rescue_left = rescue
 	if name_label:
 		name_label.text = display_name
 
 
 func _broadcast_state() -> void:
-	Match.sync_actor.rpc(slot, global_position.x, global_position.y, emp_state, hours, energy, visible, meeting_cd, kpi_cd, dash_cd, occupy_id)
-
-
-func _draw() -> void:
-	var boss := kind == Rules.Kind.BOSS
-	var s := Rules.BOSS_SCALE if boss else Rules.CHAR_SCALE
-	var body := Color(0.12, 0.12, 0.12)
-	var scarf := Color(0.89, 0.23, 0.23)
-	match skin:
-		Rules.CharSkin.CAT:
-			body = Color(0.12, 0.12, 0.12)
-			scarf = Color(0.89, 0.23, 0.23)
-		Rules.CharSkin.RABBIT:
-			body = Color(0.96, 0.94, 0.9)
-			scarf = Color(0.96, 0.76, 0.29)
-		Rules.CharSkin.PENGUIN:
-			body = Color(0.15, 0.16, 0.18)
-			scarf = Color(0.18, 0.77, 0.71)
-		Rules.CharSkin.PANDA:
-			body = Color(0.95, 0.95, 0.95)
-			scarf = Color(0.96, 0.64, 0.38)
-		Rules.CharSkin.TIGER:
-			body = Color(0.93, 0.6, 0.22)
-			scarf = Color(0.77, 0.12, 0.23)
-	draw_circle(Vector2(0, 16) * s, 18 * s, Color(0, 0, 0, 0.1))
-	draw_circle(Vector2(0, -8) * s, 20 * s, body)
-	draw_circle(Vector2(0, 18) * s, 18 * s, body)
-	if skin == Rules.CharSkin.CAT or skin == Rules.CharSkin.TIGER:
-		draw_circle(Vector2(-12, -22) * s, 7 * s, body)
-		draw_circle(Vector2(12, -22) * s, 7 * s, body)
-	if skin == Rules.CharSkin.RABBIT:
-		draw_rect(Rect2(Vector2(-13, -40) * s, Vector2(7, 22) * s), body)
-		draw_rect(Rect2(Vector2(6, -40) * s, Vector2(7, 22) * s), body)
-	if skin == Rules.CharSkin.PANDA:
-		draw_circle(Vector2(-11, -22) * s, 7 * s, Color(0.1, 0.1, 0.1))
-		draw_circle(Vector2(11, -22) * s, 7 * s, Color(0.1, 0.1, 0.1))
-	if skin != Rules.CharSkin.RABBIT and skin != Rules.CharSkin.PANDA:
-		draw_circle(Vector2(-7, -10) * s, 3.8 * s, Color.WHITE)
-		draw_circle(Vector2(7, -10) * s, 3.8 * s, Color.WHITE)
-	else:
-		draw_circle(Vector2(-7, -10) * s, 3.8 * s, Color(0.12, 0.12, 0.12))
-		draw_circle(Vector2(7, -10) * s, 3.8 * s, Color(0.12, 0.12, 0.12))
-	draw_rect(Rect2(Vector2(-14, 4) * s, Vector2(28, 7) * s), scarf)
-	if emp_state == Rules.EmpState.SLACK:
-		draw_circle(Vector2(18, -26) * s, 6 * s, Color(0.2, 0.2, 0.2, 0.5))
-	if kpi_flash > 0.0 and boss:
-		draw_arc(Vector2.ZERO, 38 * s, 0, TAU, 24, Color(0.9, 0.2, 0.2, kpi_flash), 4.0)
-	if kind == Rules.Kind.EMPLOYEE and _show_resource_bars():
-		_draw_stat_bar(Vector2(-28, -34) * s, hours, Color(0.35, 0.55, 0.95))
-		_draw_stat_bar(Vector2(-28, -28) * s, energy, Color(0.95, 0.72, 0.2))
-	if is_local() and emp_state == Rules.EmpState.WALK:
-		var act := nearby_action()
-		if act.begins_with("E"):
-			draw_circle(Vector2(0, -58) * s, 12, Color(0.12, 0.12, 0.12, 0.88))
-			draw_string(ThemeDB.fallback_font, Vector2(-5, -54) * s, "E", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)
+	Match.sync_actor.rpc(slot, global_position.x, global_position.y, emp_state, hours, energy, visible, meeting_cd, kpi_cd, dash_cd, occupy_id, talk_progress, rescue_left)
 
 
 func _show_resource_bars() -> bool:
+	if kind != Rules.Kind.EMPLOYEE or emp_state == Rules.EmpState.LEFT:
+		return false
 	var my := Match.my_slot()
+	if my == Rules.Slot.BOSS:
+		return false
 	return Rules.slot_is_employee(my)
 
 
-func _draw_stat_bar(pos: Vector2, value: float, color: Color) -> void:
-	var w := 56.0
-	var h := 5.0
-	draw_rect(Rect2(pos, Vector2(w, h)), Color(0, 0, 0, 0.28))
-	draw_rect(Rect2(pos, Vector2(w * clampf(value / 100.0, 0.0, 1.0), h)), color)
+func _draw() -> void:
+	if kind != Rules.Kind.EMPLOYEE:
+		return
+	if _show_resource_bars():
+		var y := -78.0
+		if name_label:
+			y = name_label.position.y + 16.0
+		_draw_meter(Vector2(-24, y), 48, 5, hours / Rules.HOURS_START, Color(0.24, 0.86, 0.94))
+		_draw_meter(Vector2(-24, y + 8), 48, 5, energy / Rules.ENERGY_MAX, Color(0.96, 0.78, 0.29))
+	if emp_state != Rules.EmpState.TALK:
+		return
+	var w := 42.0
+	var ty := -100.0
+	if name_label:
+		ty = name_label.position.y - 10.0
+	draw_rect(Rect2(-w * 0.5, ty, w, 6), Color(0.14, 0.14, 0.16, 0.9))
+	var fill := Color(0.86, 0.22, 0.18) if Match.is_watched(self) else Color(0.95, 0.62, 0.22)
+	draw_rect(Rect2(-w * 0.5, ty, w * clampf(talk_progress, 0.0, 1.0), 6), fill)
+
+
+func _draw_meter(pos: Vector2, width: float, height: float, ratio: float, accent: Color) -> void:
+	draw_rect(Rect2(pos, Vector2(width, height)), Color(0.16, 0.18, 0.22, 0.72))
+	draw_rect(Rect2(pos, Vector2(width * clampf(ratio, 0.0, 1.0), height)), accent)

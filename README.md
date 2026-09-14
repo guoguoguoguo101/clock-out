@@ -32,5 +32,5 @@ godot --headless --path . -- --server
 
 ## 操作
 
-- 员工：WASD，E 坐下 / 咖啡 / 厕所 / 打卡，F 摸鱼
-- 老板：WASD，E 抓包，Q 开会，R KPI，Shift 冲刺
+- 员工：WASD，E 坐下 / 续命 / 捞人，F 摸鱼
+- 老板：WASD，E 约谈（盯着复盘会加速，走开同事能捞人），Q 拉去开会，R KPI，Shift 冲刺

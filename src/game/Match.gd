@@ -5,6 +5,9 @@ signal match_started
 signal match_ended
 signal hud_dirty
 signal kpi_popup
+signal caught(slot: int, repeat: bool, add_hours: float)
+signal talked(slot: int)
+signal rescued(slot: int, by_slot: int)
 
 var phase := "lobby"
 var playing := false
@@ -61,6 +64,13 @@ func _process(delta: float) -> void:
 func bind_world(p_world: Node2D, p_office: OfficeMap) -> void:
 	world = p_world
 	office = p_office
+
+
+func day_progress() -> float:
+	var dur := Rules.SHORT_MATCH_SECONDS if short_match else Rules.MATCH_SECONDS
+	if phase == "lobby" or phase == "countdown" or dur <= 0.01:
+		return 0.0
+	return clampf(1.0 - time_left / dur, 0.0, 1.0)
 
 
 func my_slot() -> int:
@@ -139,6 +149,8 @@ func begin_match(p_short: bool, instant: bool = false) -> void:
 	short_match = p_short
 	time_left = Rules.SHORT_MATCH_SECONDS if p_short else Rules.MATCH_SECONDS
 	elapsed = 0.0
+	if office:
+		office.reset_shift()
 	if instant:
 		phase = "playing"
 		playing = true
@@ -156,6 +168,9 @@ func _spawn_all() -> void:
 	actors.clear()
 	if office == null:
 		return
+	office.reset_shift()
+	for k in office.occupiers.keys():
+		office.occupiers[k] = -1
 	for s in slots.keys():
 		var pid := int(slots[s])
 		var actor: Actor = _actor_scene.instantiate()
@@ -195,12 +210,12 @@ func spawn_actor(slot: int, pid: int, pname: String, x: float, y: float, st: int
 
 
 @rpc("authority", "unreliable")
-func sync_actor(slot: int, x: float, y: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, _occ: String) -> void:
+func sync_actor(slot: int, x: float, y: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, _occ: String, talk: float = 0.0, rescue: float = 0.0) -> void:
 	if multiplayer.is_server():
 		return
 	if not actors.has(slot):
 		return
-	(actors[slot] as Actor).apply_snapshot(x, y, st, h, e, vis, mcd, kcd, dcd)
+	(actors[slot] as Actor).apply_snapshot(x, y, st, h, e, vis, mcd, kcd, dcd, talk, rescue)
 
 
 @rpc("authority", "unreliable")
@@ -222,19 +237,134 @@ func is_supervised(emp: Actor) -> bool:
 	return boss.global_position.distance_to(behind) <= Rules.SUPERVISE_DIST or boss.global_position.distance_to(emp.global_position) <= Rules.SUPERVISE_DIST
 
 
-func try_catch(boss: Actor) -> void:
-	var extra := 0.0
+func is_watched(emp: Actor) -> bool:
+	if office == null or not actors.has(Rules.Slot.BOSS):
+		return false
+	var boss: Actor = actors[Rules.Slot.BOSS]
+	if boss == null:
+		return false
+	return office.same_view(boss.global_position, emp.global_position)
+
+
+func is_catchable(emp: Actor) -> bool:
+	if emp.kind != Rules.Kind.EMPLOYEE:
+		return false
+	if emp.emp_state == Rules.EmpState.SLACK or emp.emp_state == Rules.EmpState.COFFEE or emp.emp_state == Rules.EmpState.TOILET:
+		return true
+	return emp.rescue_left > 0.0
+
+
+func nearest_talk(from: Vector2, max_d: float) -> Actor:
+	var best: Actor = null
+	var best_d := max_d
 	for a in actors.values():
 		var e := a as Actor
-		if e.kind != Rules.Kind.EMPLOYEE:
+		if e.kind != Rules.Kind.EMPLOYEE or e.emp_state != Rules.EmpState.TALK:
 			continue
-		if e.emp_state != Rules.EmpState.SLACK and e.emp_state != Rules.EmpState.COFFEE and e.emp_state != Rules.EmpState.TOILET:
+		var d := from.distance_to(e.global_position)
+		if d < best_d:
+			best_d = d
+			best = e
+	return best
+
+
+func try_catch(boss: Actor) -> void:
+	for a in actors.values():
+		var e := a as Actor
+		if not is_catchable(e):
 			continue
 		if boss.global_position.distance_to(e.global_position) > Rules.CATCH_RANGE:
 			continue
-		var repeat := e.catch_chain > 0.0
-		e.apply_catch(repeat, extra)
+		catch_employee(e)
 		return
+
+
+func catch_employee(emp: Actor) -> void:
+	start_talk(emp)
+
+
+func start_talk(emp: Actor) -> void:
+	if not multiplayer.is_server():
+		return
+	if emp.emp_state == Rules.EmpState.CLOCKING or emp.emp_state == Rules.EmpState.LEFT:
+		return
+	if emp.emp_state == Rules.EmpState.TALK or emp.emp_state == Rules.EmpState.MEETING:
+		return
+	emp.begin_talk()
+	notify_talked.rpc(emp.slot)
+
+
+func finish_talk(emp: Actor) -> void:
+	if not multiplayer.is_server():
+		return
+	if emp.emp_state != Rules.EmpState.TALK:
+		return
+	var repeat := emp.catch_chain > 0.0
+	var add := Rules.CATCH_HOURS_REPEAT if repeat else Rules.CATCH_HOURS_FIRST
+	emp.apply_catch(repeat, 0.0)
+	notify_caught.rpc(emp.slot, repeat, add)
+
+
+func try_rescue(rescuer: Actor) -> bool:
+	if rescuer.stand_lock > 0.0 or rescuer.rescue_left > 0.0:
+		return false
+	if rescuer.emp_state != Rules.EmpState.WALK:
+		return false
+	var vic := nearest_talk(rescuer.global_position, Rules.RESCUE_RANGE)
+	if vic == null:
+		return false
+	if is_watched(vic):
+		var boss: Actor = actors.get(Rules.Slot.BOSS) as Actor
+		if boss != null and boss.global_position.distance_to(rescuer.global_position) <= Rules.CATCH_RANGE:
+			start_talk(rescuer)
+		return true
+	rescuer.rescue_slot = vic.slot
+	rescuer.rescue_left = Rules.RESCUE_TIME
+	return true
+
+
+func tick_rescue(rescuer: Actor, delta: float) -> bool:
+	if not actors.has(rescuer.rescue_slot):
+		rescuer.clear_rescue()
+		return false
+	var vic: Actor = actors[rescuer.rescue_slot]
+	if vic.emp_state != Rules.EmpState.TALK:
+		rescuer.clear_rescue()
+		return false
+	if is_watched(vic):
+		rescuer.clear_rescue()
+		return false
+	if rescuer.global_position.distance_to(vic.global_position) > Rules.RESCUE_RANGE + 16.0:
+		rescuer.clear_rescue()
+		return false
+	rescuer.rescue_left -= delta
+	if rescuer.rescue_left <= 0.0:
+		complete_rescue(rescuer, vic)
+		return false
+	return true
+
+
+func complete_rescue(rescuer: Actor, vic: Actor) -> void:
+	vic.end_talk_rescued()
+	rescuer.clear_rescue()
+	vic.boost_left = Rules.RESCUE_BOOST_TIME
+	rescuer.boost_left = Rules.RESCUE_BOOST_TIME
+	notify_rescued.rpc(vic.slot, rescuer.slot)
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_caught(slot: int, repeat: bool, add_hours: float) -> void:
+	caught.emit(slot, repeat, add_hours)
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_talked(slot: int) -> void:
+	talked.emit(slot)
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_rescued(slot: int, by_slot: int) -> void:
+	rescued.emit(slot, by_slot)
 
 
 func try_meeting(boss: Actor) -> bool:

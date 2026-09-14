@@ -2,8 +2,8 @@ extends Node
 
 const PORT := 19107
 const MAX_PLAYERS := 8
-const MAP_SIZE := Vector2(1680, 980)
-const CORRIDOR_Y := 330.0
+const MAP_SIZE := Vector2(2560, 1520)
+const CORRIDOR_Y := 670.0
 
 const MATCH_SECONDS := 600.0
 const SHORT_MATCH_SECONDS := 180.0
@@ -36,6 +36,15 @@ const CATCH_CHAIN_WINDOW := 12.0
 const CATCH_RANGE := 70.0
 const TIGER_CATCH_RANGE := 70.0
 
+const TALK_WATCH_TIME := 5.0
+const TALK_ALONE_TIME := 10.0
+const RESCUE_TIME := 1.2
+const RESCUE_RANGE := 72.0
+const RESCUE_BOOST_TIME := 1.6
+const RESCUE_BOOST_MUL := 1.28
+
+const TALK_QUIPS := ["来，对对齐颗粒度", "这个产出我们展开讲讲", "你这周的交付呢", "先写个复盘吧"]
+
 const MEETING_TIME := 9.0
 const MEETING_CD := 18.0
 const TIGER_MEETING_TIME := 9.0
@@ -46,48 +55,60 @@ const KPI_CD := 75.0
 const KPI_UNLOCK := 40.0
 
 const TIGER_SPEED_MUL := 1.15
-const EMPLOYEE_SPEED := 320.0
-const BOSS_BASE_SPEED := 340.0
+const EMPLOYEE_SPEED := 168.0
+const BOSS_BASE_SPEED := 182.0
 const TIGER_DASH_CD := 12.0
 const TIGER_DASH_TIME := 0.28
-const TIGER_DASH_SPEED := 720.0
+const TIGER_DASH_SPEED := 420.0
 
-const INTERACT_RANGE := 78.0
-const CLOCK_RANGE := 56.0
-const CHAR_SCALE := 3.05
-const BOSS_SCALE := 3.45
+const INTERACT_RANGE := 64.0
+const CLOCK_RANGE := 48.0
+const SPRITE_SCALE := 0.088
+const BOSS_SPRITE := 0.11
 
 enum Slot { BOSS, EMP_A, EMP_B, EMP_C, EMP_D }
 enum Kind { BOSS, EMPLOYEE }
-enum EmpState { WALK, WORK, SLACK, COFFEE, TOILET, MEETING, CLOCKING, LEFT }
-enum CharSkin { CAT, RABBIT, PENGUIN, PANDA, TIGER }
+enum EmpState { WALK, WORK, SLACK, COFFEE, TOILET, MEETING, CLOCKING, LEFT, TALK }
+enum CharSkin { HORSE, RABBIT, COW, PELICAN, TIGER }
 
 const SLOT_NAMES := {
 	Slot.BOSS: "老板",
-	Slot.EMP_A: "员工·黑猫",
+	Slot.EMP_A: "员工·小马",
 	Slot.EMP_B: "员工·兔子",
-	Slot.EMP_C: "员工·企鹅",
-	Slot.EMP_D: "员工·熊猫",
+	Slot.EMP_C: "员工·牛",
+	Slot.EMP_D: "员工·鹈鹕",
 }
 
 const SKIN_FOR_SLOT := {
 	Slot.BOSS: CharSkin.TIGER,
-	Slot.EMP_A: CharSkin.CAT,
+	Slot.EMP_A: CharSkin.HORSE,
 	Slot.EMP_B: CharSkin.RABBIT,
-	Slot.EMP_C: CharSkin.PENGUIN,
-	Slot.EMP_D: CharSkin.PANDA,
+	Slot.EMP_C: CharSkin.COW,
+	Slot.EMP_D: CharSkin.PELICAN,
+}
+
+const SCARF_FOR_SKIN := {
+	CharSkin.HORSE: Color("3EE0F2"),
+	CharSkin.RABBIT: Color("F4C14A"),
+	CharSkin.COW: Color("E23B3B"),
+	CharSkin.PELICAN: Color("7B5CFF"),
 }
 
 const STATE_NAMES := {
-	EmpState.WALK: "走路",
-	EmpState.WORK: "上班",
+	EmpState.WALK: "划水",
+	EmpState.WORK: "在卷",
 	EmpState.SLACK: "摸鱼",
-	EmpState.COFFEE: "喝咖啡",
-	EmpState.TOILET: "上厕所",
-	EmpState.MEETING: "开会",
-	EmpState.CLOCKING: "去打卡",
+	EmpState.COFFEE: "续命",
+	EmpState.TOILET: "暂时离线",
+	EmpState.MEETING: "被拉去开会",
+	EmpState.CLOCKING: "润了",
 	EmpState.LEFT: "已下班",
+	EmpState.TALK: "约谈中",
 }
+
+func scarf_color(skin: int) -> Color:
+	return SCARF_FOR_SKIN.get(skin, Color("3EE0F2"))
+
 
 func slot_is_employee(slot: int) -> bool:
 	return slot >= Slot.EMP_A and slot <= Slot.EMP_D
@@ -95,3 +116,12 @@ func slot_is_employee(slot: int) -> bool:
 
 func employee_index(slot: int) -> int:
 	return slot - Slot.EMP_A
+
+
+func talk_quip(slot: int) -> String:
+	return TALK_QUIPS[slot % TALK_QUIPS.size()]
+
+
+func office_clock_text(progress: float) -> String:
+	var t := 17 * 60 + 50 + int(round(clampf(progress, 0.0, 1.0) * 10.0))
+	return "%d:%02d" % [t / 60, t % 60]

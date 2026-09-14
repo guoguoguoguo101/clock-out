@@ -15,9 +15,13 @@ func tick(delta: float) -> void:
 	if actor.emp_state == Rules.EmpState.LEFT or actor.emp_state == Rules.EmpState.CLOCKING:
 		actor.input_dir = Vector2.ZERO
 		return
-	if actor.emp_state == Rules.EmpState.MEETING:
+	if actor.emp_state == Rules.EmpState.MEETING or actor.emp_state == Rules.EmpState.TALK:
+		actor.input_dir = Vector2.ZERO
 		return
 	think -= delta
+	if actor.rescue_left > 0.0:
+		actor.input_dir = Vector2.ZERO
+		return
 	if actor.emp_state == Rules.EmpState.COFFEE or actor.emp_state == Rules.EmpState.TOILET:
 		if actor.energy > 92.0:
 			actor.want_interact = true
@@ -32,6 +36,12 @@ func tick(delta: float) -> void:
 	if actor.emp_state == Rules.EmpState.SLACK:
 		if actor.energy > 78.0:
 			actor.want_slack = true
+		return
+	var victim := _find_rescue()
+	if victim != null:
+		_go(victim.global_position, delta)
+		if actor.global_position.distance_to(victim.global_position) < Rules.RESCUE_RANGE:
+			actor.want_interact = true
 		return
 	var seat: Vector2 = map.seat_for_slot(actor.slot)
 	if actor.energy < 22.0:
@@ -52,3 +62,23 @@ func _go(target: Vector2, _delta: float) -> void:
 	var next: Vector2 = map.path_to(actor.global_position, target)
 	var d := next - actor.global_position
 	actor.input_dir = d.normalized() if d.length() > 6.0 else Vector2.ZERO
+
+
+func _find_rescue() -> Actor:
+	if actor.energy < 26.0 or actor.hours < 14.0:
+		return null
+	var best: Actor = null
+	var best_d := 520.0
+	for a in Match.actors.values():
+		var e := a as Actor
+		if e == actor or e.kind != Rules.Kind.EMPLOYEE:
+			continue
+		if e.emp_state != Rules.EmpState.TALK:
+			continue
+		if Match.is_watched(e):
+			continue
+		var d := actor.global_position.distance_to(e.global_position)
+		if d < best_d:
+			best_d = d
+			best = e
+	return best

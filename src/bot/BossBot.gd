@@ -5,6 +5,7 @@ var actor: Actor
 var map: OfficeMap
 var patrol := 0
 var wait := 0.0
+var watching := false
 
 
 func _init(p_actor: Actor, p_map: OfficeMap) -> void:
@@ -14,6 +15,20 @@ func _init(p_actor: Actor, p_map: OfficeMap) -> void:
 
 func tick(delta: float) -> void:
 	wait -= delta
+	var talk := _talk_here()
+	if talk != null:
+		if watching:
+			actor.input_dir = Vector2.ZERO
+			if wait <= 0.0:
+				watching = false
+			return
+		if wait <= 0.0:
+			watching = true
+			wait = 3.4
+			actor.input_dir = Vector2.ZERO
+			return
+	else:
+		watching = false
 	var prey := _find_prey()
 	if prey != null:
 		var d := prey.global_position - actor.global_position
@@ -40,6 +55,16 @@ func tick(delta: float) -> void:
 	if Match.elapsed > Rules.KPI_UNLOCK + 2.0 and actor.kpi_cd <= 0.0 and wait <= 0.0:
 		actor.want_kpi = true
 		wait = 8.0
+
+
+func _talk_here() -> Actor:
+	for a in Match.actors.values():
+		var e := a as Actor
+		if e.kind != Rules.Kind.EMPLOYEE or e.emp_state != Rules.EmpState.TALK:
+			continue
+		if map.same_view(actor.global_position, e.global_position):
+			return e
+	return null
 
 
 func _find_prey() -> Actor:

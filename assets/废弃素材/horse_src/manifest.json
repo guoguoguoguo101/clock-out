@@ -1,0 +1,27 @@
+{
+  "name": "horse",
+  "size": 1024,
+  "transparent": true,
+  "source": "assets/concept/horse-bible.jpg",
+  "note": "Rebuilt from the horse bible: crop originals, then AI redraw, then split to 1024 PNG.",
+  "folders": {
+    "crops": "assets/horse/crops",
+    "sheets": "assets/horse/sheets",
+    "hd": "assets/horse/hd",
+    "game": "assets/game/chars/horse"
+  },
+  "hd": {
+    "portrait": ["00_portrait/hero.png"],
+    "idle": ["01_idle/idle_0.png", "01_idle/idle_1.png", "01_idle/idle_2.png", "01_idle/idle_3.png"],
+    "walk": ["02_walk/walk_0.png", "02_walk/walk_1.png", "02_walk/walk_2.png", "02_walk/walk_3.png"],
+    "run": ["03_run/run_0.png", "03_run/run_1.png", "03_run/run_2.png", "03_run/run_3.png"],
+    "acts": ["04_acts/work.png", "04_acts/read.png", "04_acts/coffee.png", "04_acts/think.png", "04_acts/cheer.png", "04_acts/sleep.png"],
+    "faces": ["05_faces/idle.png", "05_faces/happy.png", "05_faces/proud.png", "05_faces/angry.png", "05_faces/confused.png", "05_faces/question.png", "05_faces/shock.png", "05_faces/awkward.png", "05_faces/love.png"],
+    "props": ["06_props/bag.png", "06_props/coffee.png", "06_props/laptop.png", "06_props/paper.png", "06_props/pencil.png", "06_props/books.png", "06_props/plant.png", "06_props/headset.png", "06_props/phone.png", "06_props/drink.png", "06_props/cookie.png", "06_props/gift.png", "06_props/coin.png", "06_props/star.png", "06_props/heart.png", "06_props/bulb.png"],
+    "colors": ["07_colors/cyan.png", "07_colors/yellow.png", "07_colors/red.png", "07_colors/purple.png", "07_colors/green.png", "07_colors/pink.png"],
+    "accessories": ["08_acc/hat.png", "08_acc/headset.png", "08_acc/backpack.png", "08_acc/crown.png"],
+    "scenes": ["09_scenes/move.png", "09_scenes/stairs.png", "09_scenes/jump.png", "09_scenes/interact.png", "09_scenes/door.png"],
+    "ui": ["10_ui/collect.png", "10_ui/task.png", "10_ui/bag.png", "10_ui/settings.png", "10_ui/hud.png", "10_ui/heart.png", "10_ui/bolt.png", "10_ui/smile.png", "10_ui/mail.png"],
+    "extras": ["11_extras/peek.png", "11_extras/hide.png", "11_extras/dash.png", "11_extras/lie.png", "11_extras/bubble.png"]
+  }
+}

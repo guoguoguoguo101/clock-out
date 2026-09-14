@@ -5,7 +5,7 @@ config_version=5
 config/name="clock-out"
 config/description="1 老板对 4 员工的办公室对战"
 run/main_scene="res://src/game/Game.tscn"
-config/features=PackedStringArray("4.7", "Forward Plus")
+config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.svg"
 
 [autoload]
@@ -26,4 +26,4 @@ window/stretch/aspect="expand"
 
 [rendering]
 renderer/rendering_method="gl_compatibility"
-environment/defaults/default_clear_color=Color(0.96, 0.96, 0.96, 1)
+environment/defaults/default_clear_color=Color(0.90, 0.95, 0.98, 1)
