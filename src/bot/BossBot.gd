@@ -15,6 +15,13 @@ func _init(p_actor: Actor, p_map: OfficeMap) -> void:
 
 func tick(delta: float) -> void:
 	wait -= delta
+	var door = map.nearest_door(actor.global_position, 70.0)
+	if door != null and (door.closed or door.opening):
+		var dd = door.global_position - actor.global_position
+		actor.input_dir = dd.normalized() if dd.length() > 10.0 else Vector2.ZERO
+		if door.closed:
+			actor.want_interact = true
+		return
 	var talk := _talk_here()
 	if talk != null:
 		if watching:

@@ -4,6 +4,8 @@ class_name Actor
 const SNAP_HZ := 15.0
 const Kit := preload("res://src/actor/CharKit.gd")
 const SCARF_SHADER := preload("res://src/actor/scarf.gdshader")
+const PAPER_TEX := preload("res://assets/game/props/paper.png")
+const COFFEE_TEX := preload("res://assets/game/props/coffee.png")
 
 @onready var name_label: Label = $Name
 
@@ -33,6 +35,7 @@ var meeting_left := 0.0
 var catch_chain := 0.0
 var slack_seen := 0.0
 var occupy_id := ""
+var last_seat := 0
 var left_clock := ""
 var talk_progress := 0.0
 var rescue_left := 0.0
@@ -112,23 +115,23 @@ func nearby_action() -> String:
 		return "被拉去开会 · 救不了"
 	if stand_lock > 0.0:
 		return "刚复盘完 · 先站一会儿"
+	var map := office()
+	if map == null:
+		return ""
+	var door = map.nearest_door(global_position, Rules.DOOR_RANGE)
+	if door != null:
+		return door.prompt_text(kind)
 	var talk := Match.nearest_talk(global_position, Rules.RESCUE_RANGE)
 	if talk != null:
 		if Match.is_watched(talk):
 			return "老板盯着 · 捞不走"
 		return "E 捞人"
-	var map := office()
-	if map == null:
-		return ""
-	var idx := Rules.employee_index(slot) + 1
-	if global_position.distance_to(map.points["seat_%d" % idx]) < Rules.INTERACT_RANGE:
+	var seat := map.nearest_spot("seat", global_position, Rules.INTERACT_RANGE)
+	if seat != "":
+		var who: int = map.occupiers.get(seat, -1)
+		if who != -1 and who != slot:
+			return "这个位子有人"
 		return "E 坐下干活"
-	for i in 4:
-		var other := i + 1
-		if other == idx:
-			continue
-		if global_position.distance_to(map.points["seat_%d" % other]) < Rules.INTERACT_RANGE:
-			return "别人的工位"
 	var coffee := map.nearest_free("coffee", global_position)
 	if coffee != "" and global_position.distance_to(map.points[coffee]) < Rules.INTERACT_RANGE:
 		return "E 续命（咖啡）"
@@ -150,6 +153,11 @@ func _boss_nearby_action() -> String:
 			if e.rescue_left > 0.0:
 				return "E 约谈（捞人的也别跑）"
 			return "E 约谈"
+	var map := office()
+	if map:
+		var door = map.nearest_door(global_position, Rules.DOOR_RANGE)
+		if door != null:
+			return door.prompt_text(kind)
 	return ""
 
 
@@ -276,7 +284,11 @@ func _update_visual(delta := 0.0) -> void:
 		if emp_state == Rules.EmpState.TALK:
 			zzz_label.visible = true
 			zzz_label.text = "复盘中" if Match.is_watched(self) else "救命"
-			zzz_label.add_theme_color_override("font_color", Color(0.78, 0.18, 0.16))
+			zzz_label.add_theme_color_override("font_color", Color(0.92, 0.18, 0.14))
+		elif emp_state == Rules.EmpState.CLOCKING:
+			zzz_label.visible = true
+			zzz_label.text = "润"
+			zzz_label.add_theme_color_override("font_color", Color(0.45, 0.82, 0.42))
 		else:
 			zzz_label.visible = false
 			zzz_label.text = "z z"
@@ -285,8 +297,8 @@ func _update_visual(delta := 0.0) -> void:
 		name_label.position = Vector2(-40, -sz.y * sc - 18.0)
 	_update_chips(sz.y * sc)
 	_update_world_text(sz.y * sc, delta)
-	if hold_sprite:
-		hold_sprite.visible = false
+	_update_hold()
+	_update_threat_modulate()
 
 
 func _anim_pose() -> String:
@@ -358,6 +370,47 @@ func _update_world_text(body_h: float, delta: float) -> void:
 	prompt_bg.position = Vector2(-pw * 0.5 - 6, -body_h - 38.0)
 
 
+func _update_hold() -> void:
+	if hold_sprite == null:
+		return
+	if emp_state == Rules.EmpState.TALK:
+		hold_sprite.texture = PAPER_TEX
+		hold_sprite.visible = true
+		hold_sprite.position = Vector2(18, -10)
+		hold_sprite.scale = Vector2(0.035, 0.035)
+		hold_sprite.modulate = Color(1, 0.85, 0.82)
+	elif emp_state == Rules.EmpState.COFFEE:
+		hold_sprite.texture = COFFEE_TEX
+		hold_sprite.visible = true
+		hold_sprite.position = Vector2(16, -8)
+		hold_sprite.scale = Vector2(0.03, 0.03)
+		hold_sprite.modulate = Color.WHITE
+	else:
+		hold_sprite.visible = false
+
+
+func _update_threat_modulate() -> void:
+	if body_sprite == null:
+		return
+	var c := Color.WHITE
+	if kind == Rules.Kind.EMPLOYEE:
+		var map := office()
+		var threat := map.threat_for(self) if map else 0.0
+		if emp_state == Rules.EmpState.TALK:
+			c = Color(1.0, 0.58, 0.54)
+		elif emp_state == Rules.EmpState.CLOCKING:
+			c = Color(0.72, 1.0, 0.78)
+		elif Match.is_supervised(self):
+			c = Color(0.82, 0.78, 0.78)
+		elif threat > 0.18:
+			c = Color.WHITE.lerp(Color(0.90, 0.70, 0.68), clampf(threat, 0.0, 1.0))
+		if boost_left > 0.0:
+			c = c.lerp(Color(0.75, 1.0, 0.82), 0.4)
+	elif kpi_flash > 0.0:
+		c = Color(1.0, 0.55, 0.5)
+	body_sprite.modulate = c
+
+
 func _physics_process(delta: float) -> void:
 	if multiplayer.is_server() and Match.playing:
 		_server_tick(delta)
@@ -412,6 +465,9 @@ func _employee_tick(delta: float) -> void:
 			return
 		Rules.EmpState.CLOCKING:
 			var target: Vector2 = office().nearest_punch(global_position)
+			var blocked = office().nearest_door(global_position, 56.0)
+			if blocked != null and blocked.closed:
+				office().try_door(self)
 			_move_towards(office().path_to(global_position, target), Rules.EMPLOYEE_SPEED, delta)
 			if global_position.distance_to(target) < Rules.CLOCK_RANGE:
 				_clock_out()
@@ -508,12 +564,15 @@ func _try_employee_interact() -> void:
 	if Match.try_rescue(self):
 		return
 	var map := office()
-	var idx := Rules.employee_index(slot) + 1
-	if global_position.distance_to(map.points["seat_%d" % idx]) < Rules.INTERACT_RANGE:
-		emp_state = Rules.EmpState.WORK
-		global_position = map.points["seat_%d" % idx]
-		occupy_id = "seat_%d" % idx
-		map.take_spot(occupy_id, slot)
+	if map.try_door(self):
+		return
+	var seat := map.nearest_spot("seat", global_position, Rules.INTERACT_RANGE)
+	if seat != "":
+		if map.take_spot(seat, slot):
+			emp_state = Rules.EmpState.WORK
+			global_position = map.points[seat]
+			occupy_id = seat
+			last_seat = int(seat.get_slice("_", 1))
 		return
 	var coffee := map.nearest_free("coffee", global_position)
 	if coffee != "" and global_position.distance_to(map.points[coffee]) < Rules.INTERACT_RANGE:
@@ -612,7 +671,12 @@ func _boss_tick(delta: float) -> void:
 	if velocity.length() > 8.0:
 		_facing = velocity.normalized()
 	if want_interact:
-		Match.try_catch(self)
+		if not Match.try_catch(self) and office():
+			office().try_door(self)
+	if office():
+		var stuck = office().nearest_door(global_position, 52.0)
+		if stuck != null and stuck.closed:
+			office().try_door(self)
 	if want_meeting and meeting_cd <= 0.0:
 		if Match.try_meeting(self):
 			meeting_cd = Rules.TIGER_MEETING_CD
@@ -684,6 +748,16 @@ func _show_resource_bars() -> bool:
 
 
 func _draw() -> void:
+	if kind == Rules.Kind.EMPLOYEE and emp_state == Rules.EmpState.TALK:
+		var watched := Match.is_watched(self)
+		var pulse := 0.72 + 0.28 * (0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.006))
+		var col := Color(0.85, 0.10, 0.08, (0.22 if watched else 0.13) * pulse)
+		draw_circle(Vector2(0, -18), 52.0 * pulse, col)
+		draw_arc(Vector2(0, -18), 56.0 * pulse, 0, TAU, 32, Color(0.92, 0.18, 0.14, 0.62 if watched else 0.34), 2.2)
+	if kind == Rules.Kind.EMPLOYEE and (rescue_left > 0.0 or boost_left > 0.0):
+		var a := 0.35 if rescue_left > 0.0 else 0.22
+		draw_line(Vector2(-28, -8), Vector2(-8, -20), Color(1, 1, 0.7, a), 2.0)
+		draw_line(Vector2(-24, 6), Vector2(-4, -4), Color(1, 1, 0.7, a), 2.0)
 	if kind != Rules.Kind.EMPLOYEE:
 		return
 	if _show_resource_bars():

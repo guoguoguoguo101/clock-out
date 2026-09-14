@@ -183,6 +183,7 @@ func _spawn_all() -> void:
 			actor.global_position = office.seat_for_slot(int(s))
 			actor.emp_state = Rules.EmpState.WORK
 			actor.occupy_id = "seat_%d" % (Rules.employee_index(int(s)) + 1)
+			actor.last_seat = Rules.employee_index(int(s)) + 1
 			office.take_spot(actor.occupy_id, int(s))
 		actors[int(s)] = actor
 		spawn_actor.rpc(int(s), pid, pname, actor.global_position.x, actor.global_position.y, actor.emp_state)
@@ -232,9 +233,18 @@ func is_supervised(emp: Actor) -> bool:
 	if not actors.has(Rules.Slot.BOSS):
 		return false
 	var boss: Actor = actors[Rules.Slot.BOSS]
-	var idx := Rules.employee_index(emp.slot) + 1
-	var behind: Vector2 = office.points["sup_%d" % idx]
-	return boss.global_position.distance_to(behind) <= Rules.SUPERVISE_DIST or boss.global_position.distance_to(emp.global_position) <= Rules.SUPERVISE_DIST
+	if boss.global_position.distance_to(emp.global_position) <= Rules.SUPERVISE_DIST:
+		return true
+	var sid := emp.occupy_id
+	if sid == "" or not sid.begins_with("seat_"):
+		if emp.last_seat > 0:
+			sid = "seat_%d" % emp.last_seat
+		else:
+			return false
+	var key := "sup_%s" % sid.get_slice("_", 1)
+	if not office.points.has(key):
+		return false
+	return boss.global_position.distance_to(office.points[key]) <= Rules.SUPERVISE_DIST
 
 
 func is_watched(emp: Actor) -> bool:
@@ -268,7 +278,7 @@ func nearest_talk(from: Vector2, max_d: float) -> Actor:
 	return best
 
 
-func try_catch(boss: Actor) -> void:
+func try_catch(boss: Actor) -> bool:
 	for a in actors.values():
 		var e := a as Actor
 		if not is_catchable(e):
@@ -276,7 +286,8 @@ func try_catch(boss: Actor) -> void:
 		if boss.global_position.distance_to(e.global_position) > Rules.CATCH_RANGE:
 			continue
 		catch_employee(e)
-		return
+		return true
+	return false
 
 
 func catch_employee(emp: Actor) -> void:

@@ -62,6 +62,8 @@ const TIGER_DASH_TIME := 0.28
 const TIGER_DASH_SPEED := 420.0
 
 const INTERACT_RANGE := 64.0
+const DOOR_RANGE := 62.0
+const DOOR_OPEN_TIME := 1.65
 const CLOCK_RANGE := 48.0
 const SPRITE_SCALE := 0.088
 const BOSS_SPRITE := 0.11

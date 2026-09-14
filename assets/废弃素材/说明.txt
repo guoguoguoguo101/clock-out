@@ -1,8 +1,4 @@
-游戏没用到的素材，从工程里挪出来，避免 Godot 继续导入。
-在用的只有：
-- assets/game/chars/{horse,rabbit,cow,pelican,tiger} 的站立/走/跑/工作/休息/厕所帧
-- assets/game/props 里办公室实际摆出去的家具
-- assets/game/ui/hours.png energy.png 和 lobby/
-- preview/sprites.html 与 preview/sprites、preview/horse-sprites
+废弃素材已从仓库删掉，减轻拉取体积。
 
-已移动条目：137
+游戏在用的只有 assets/game/ 下的角色、道具和 UI。
+不要把旧图拷回 assets/game/。

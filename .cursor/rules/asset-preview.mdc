@@ -1,0 +1,17 @@
+---
+description: 改动游戏素材后必须重建 H5 预览图鉴
+globs: assets/**/*.{png,jpg,jpeg,webp,svg,gif,ogg,wav,mp3}
+alwaysApply: false
+---
+
+# 素材预览
+
+写入或替换 `assets/` 下的图片、音频之后，立刻运行：
+
+```bash
+python tools/build_asset_preview.py
+```
+
+图鉴入口是 `preview/index.html`。不要手改生成结果。在用素材和 `assets/废弃素材/` 都会进预览，废弃的在「废弃」分类。
+
+完整约定见 `.cursor/skills/asset-preview/SKILL.md`。

@@ -37,13 +37,17 @@ func tick(delta: float) -> void:
 		if actor.energy > 78.0:
 			actor.want_slack = true
 		return
+	var blocked = map.nearest_door(actor.global_position, 56.0)
+	if blocked != null and blocked.closed:
+		_go(blocked.global_position, delta)
+		actor.want_interact = true
+		return
 	var victim := _find_rescue()
 	if victim != null:
 		_go(victim.global_position, delta)
 		if actor.global_position.distance_to(victim.global_position) < Rules.RESCUE_RANGE:
 			actor.want_interact = true
 		return
-	var seat: Vector2 = map.seat_for_slot(actor.slot)
 	if actor.energy < 22.0:
 		var id := map.nearest_free("coffee", actor.global_position)
 		if id == "":
@@ -53,8 +57,12 @@ func tick(delta: float) -> void:
 			if actor.global_position.distance_to(map.points[id]) < Rules.INTERACT_RANGE:
 				actor.want_interact = true
 			return
-	_go(seat, delta)
-	if actor.global_position.distance_to(seat) < Rules.INTERACT_RANGE and actor.stand_lock <= 0.0:
+	var seat_id := map.nearest_free("seat", actor.global_position)
+	if seat_id == "":
+		_go(map.points["corridor"], delta)
+		return
+	_go(map.points[seat_id], delta)
+	if actor.global_position.distance_to(map.points[seat_id]) < Rules.INTERACT_RANGE and actor.stand_lock <= 0.0:
 		actor.want_interact = true
 
 
