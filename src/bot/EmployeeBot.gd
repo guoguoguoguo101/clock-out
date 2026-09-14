@@ -12,6 +12,10 @@ func _init(p_actor: Actor, p_map: OfficeMap) -> void:
 
 
 func tick(delta: float) -> void:
+	if actor.carried_by >= 0:
+		actor.input_dir = Vector2.ZERO
+		actor.want_interact = false
+		return
 	if actor.emp_state == Rules.EmpState.LEFT or actor.emp_state == Rules.EmpState.CLOCKING:
 		actor.input_dir = Vector2.ZERO
 		return

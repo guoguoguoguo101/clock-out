@@ -66,11 +66,16 @@ const DOOR_RANGE := 62.0
 const DOOR_OPEN_TIME := 1.65
 const CLOCK_RANGE := 48.0
 const SPRITE_SCALE := 0.088
+const CARRY_RANGE := 76.0
+const CARRY_WINDUP := 0.32
+const CARRY_DURATION := 8.0
+const CARRY_RECOVERY := 0.65
+
 const BOSS_SPRITE := 0.11
 
 enum Slot { BOSS, EMP_A, EMP_B, EMP_C, EMP_D }
 enum Kind { BOSS, EMPLOYEE }
-enum EmpState { WALK, WORK, SLACK, COFFEE, TOILET, MEETING, CLOCKING, LEFT, TALK }
+enum EmpState { WALK, WORK, SLACK, COFFEE, TOILET, MEETING, CLOCKING, LEFT, TALK, CARRIED }
 enum CharSkin { HORSE, RABBIT, COW, PELICAN, TIGER }
 
 const SLOT_NAMES := {
@@ -106,6 +111,7 @@ const STATE_NAMES := {
 	EmpState.CLOCKING: "润了",
 	EmpState.LEFT: "已下班",
 	EmpState.TALK: "约谈中",
+	EmpState.CARRIED: "顺风嘴 · 搭乘中",
 }
 
 func scarf_color(skin: int) -> Color:

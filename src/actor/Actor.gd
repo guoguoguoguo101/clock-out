@@ -41,6 +41,14 @@ var talk_progress := 0.0
 var rescue_left := 0.0
 var rescue_slot := -1
 var boost_left := 0.0
+var carrying_slot := -1
+var carried_by := -1
+var carry_left := 0.0
+var carry_windup := 0.0
+var carry_recovery := 0.0
+var carry_saved_talk := -1.0
+var carry_visual: Node2D
+var landing_left := 0.0
 
 var meeting_cd := 0.0
 var kpi_cd := 0.0
@@ -99,6 +107,14 @@ func office() -> OfficeMap:
 func nearby_action() -> String:
 	if kind == Rules.Kind.BOSS:
 		return _boss_nearby_action()
+	if carried_by >= 0:
+		return "顺风嘴 · E 主动下来"
+	if carrying_slot >= 0:
+		return "跨部门捞人 · E 放下同事（%.0fs）" % ceilf(carry_left)
+	if skin == Rules.CharSkin.PELICAN and emp_state == Rules.EmpState.WALK and stand_lock <= 0.0:
+		var passenger: Actor = Match.nearest_carry_target(self)
+		if passenger != null:
+			return "E 叼走「%s」" % passenger.display_name
 	if emp_state == Rules.EmpState.TALK:
 		if Match.is_watched(self):
 			return "约谈中 · 老板盯着，捞不走"
@@ -187,6 +203,10 @@ func _ensure_sprite() -> void:
 	body_sprite.z_index = 1
 	_apply_scarf()
 	add_child(body_sprite)
+	if skin == Rules.CharSkin.PELICAN:
+		carry_visual = preload("res://src/fx/PelicanCarry.gd").new()
+		carry_visual.z_index = 3
+		add_child(carry_visual)
 	zzz_label = Label.new()
 	zzz_label.text = "z z"
 	zzz_label.visible = false
@@ -277,7 +297,20 @@ func _update_visual(delta := 0.0) -> void:
 	if sitting:
 		sc *= 0.92
 	sc *= 1024.0 / maxf(sz.y, 1.0)
+	body_sprite.position = Vector2.ZERO
+	body_sprite.rotation = 0.0
 	body_sprite.scale = Vector2(sc, sc)
+	landing_left = maxf(0.0, landing_left - delta)
+	if landing_left > 0.0:
+		var bounce := sin((1.0 - landing_left / 0.4) * PI)
+		body_sprite.position.y = -bounce * 12.0
+		body_sprite.scale *= Vector2(1.0 + bounce * 0.12, 1.0 - bounce * 0.1)
+	if carrying_slot >= 0:
+		var lean := sin(clampf(carry_windup / Rules.CARRY_WINDUP, 0.0, 1.0) * PI)
+		body_sprite.scale *= Vector2(1.0 + lean * 0.18, 1.0 - lean * 0.1)
+		body_sprite.position.x = (1.0 if _facing.x >= 0.0 else -1.0) * lean * 7.0
+		body_sprite.position.y = sin(_anim_acc * 12.0) * 1.5
+	body_sprite.visible = carried_by < 0
 	body_sprite.offset = Vector2(-sz.x * 0.5, -sz.y + 22.0)
 	body_sprite.flip_h = (not sitting) and _facing.x < 0.0
 	if zzz_label:
@@ -299,6 +332,12 @@ func _update_visual(delta := 0.0) -> void:
 	_update_world_text(sz.y * sc, delta)
 	_update_hold()
 	_update_threat_modulate()
+	if carried_by >= 0:
+		name_label.visible = false
+		zzz_label.visible = false
+		hold_sprite.visible = false
+	else:
+		name_label.visible = true
 
 
 func _anim_pose() -> String:
@@ -420,11 +459,16 @@ func _physics_process(delta: float) -> void:
 			_broadcast_state()
 	elif not multiplayer.is_server():
 		global_position = global_position.lerp(_remote_pos, 1.0 - exp(-12.0 * delta))
+	if carried_by >= 0:
+		var carrier := Match.actors.get(carried_by) as Actor
+		if carrier != null:
+			global_position = carrier.global_position
 	_update_visual(delta)
 	queue_redraw()
 
 
 func _server_tick(delta: float) -> void:
+	carry_recovery = maxf(0.0, carry_recovery - delta)
 	stand_lock = max(0.0, stand_lock - delta)
 	catch_chain = max(0.0, catch_chain - delta)
 	coffee_buff = max(0.0, coffee_buff - delta)
@@ -446,6 +490,26 @@ func _server_tick(delta: float) -> void:
 
 
 func _employee_tick(delta: float) -> void:
+	if carried_by >= 0:
+		var carrier: Actor = Match.actors.get(carried_by) as Actor
+		if carrier != null:
+			global_position = carrier.global_position
+			velocity = Vector2.ZERO
+			if want_interact and not is_bot() and carrier.carry_windup <= 0.0:
+				Match.release_carry(carrier)
+		return
+	if carrying_slot >= 0:
+		carry_left -= delta
+		carry_windup = maxf(0.0, carry_windup - delta)
+		if emp_state != Rules.EmpState.WALK or hours <= 0.0:
+			Match.release_carry(self, true)
+		elif carry_left <= 0.0 or (want_interact and carry_windup <= 0.0):
+			Match.release_carry(self)
+			want_interact = false
+		else:
+			velocity = input_dir.limit_length() * Rules.EMPLOYEE_SPEED * 0.88 if carry_windup <= 0.0 else Vector2.ZERO
+			move_and_slide()
+			return
 	if emp_state == Rules.EmpState.LEFT:
 		visible = false
 		velocity = Vector2.ZERO
@@ -561,6 +625,8 @@ func _sit_work(delta: float, slack: bool) -> void:
 func _try_employee_interact() -> void:
 	if stand_lock > 0.0:
 		return
+	if Match.try_carry(self):
+		return
 	if Match.try_rescue(self):
 		return
 	var map := office()
@@ -618,6 +684,7 @@ func _tick_talk(delta: float) -> void:
 
 
 func begin_talk() -> void:
+	Match.release_actor_carry(self, true)
 	_stand_up()
 	emp_state = Rules.EmpState.TALK
 	talk_progress = 0.0
@@ -649,6 +716,7 @@ func apply_catch(repeat: bool, extra_stun: float) -> void:
 
 
 func send_to_meeting(seconds: float, meeting_pos: Vector2) -> void:
+	Match.release_actor_carry(self, true)
 	if emp_state == Rules.EmpState.CLOCKING or emp_state == Rules.EmpState.LEFT:
 		return
 	_stand_up()
@@ -748,6 +816,8 @@ func _show_resource_bars() -> bool:
 
 
 func _draw() -> void:
+	if carried_by >= 0:
+		return
 	if kind == Rules.Kind.EMPLOYEE and emp_state == Rules.EmpState.TALK:
 		var watched := Match.is_watched(self)
 		var pulse := 0.72 + 0.28 * (0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.006))

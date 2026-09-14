@@ -28,6 +28,12 @@ func _process(delta: float) -> void:
 	if not is_visible_in_tree():
 		return
 	_t += delta
+	# Low-amplitude UI text is intentionally stable. The lobby should read like an
+	# office system first; character-level distortion is reserved for rare events.
+	if amp < 1.0 and chroma < 0.1:
+		_glitch_ch = -1
+		queue_redraw()
+		return
 	_glitch_t -= delta
 	if _glitch_t <= 0.0 and text.length() > 0 and randf() < 0.035:
 		_glitch_ch = randi() % text.length()
@@ -85,7 +91,7 @@ func _draw_line(font: Font, line: String, y: float, line_i: int) -> void:
 		var w := font.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 		var ox := sin(_t * 2.35 + float(cursor) * 1.7 + float(line_i)) * amp
 		var oy := cos(_t * 1.65 + float(cursor) * 2.1) * amp * 0.55
-		var rot := sin(_t * 1.4 + float(cursor) * 0.9) * 0.11
+		var rot := sin(_t * 1.4 + float(cursor) * 0.9) * 0.025 * minf(1.0, amp / 2.4)
 		var pos := Vector2(x + ox, y + oy)
 		draw_set_transform(pos, rot, Vector2.ONE)
 		var ink := Color(0.08, 0.05, 0.04, 0.7)

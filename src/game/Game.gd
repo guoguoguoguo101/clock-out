@@ -103,7 +103,7 @@ func _ready() -> void:
 	if not Net.is_dedicated:
 		for arg in OS.get_cmdline_user_args():
 			if arg == "--test":
-				_enter_test_room.call_deferred()
+				_show_lobby_page.call_deferred("char")
 				break
 
 
@@ -352,14 +352,29 @@ func _build_lobby() -> void:
 	hero.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	lobby.add_child(hero)
 
+	# The lobby is a small after-hours office stage, not a single flat key art.
+	# These transparent layers and two-frame employees are animated by LobbyHaunt.
+	var lobby_layers: Array[TextureRect] = []
+	lobby_layers.append(_lobby_layer("res://assets/game/ui/lobby/layers/window-rain-city.png", 0.60))
+	lobby_layers.append(_lobby_layer("res://assets/game/ui/lobby/layers/monitor-glow.png", 0.42))
+	lobby_layers.append(_lobby_layer("res://assets/game/ui/lobby/layers/glass-lights-dust.png", 0.48))
+	for layer in lobby_layers:
+		lobby.add_child(layer)
+
 	var dim := ColorRect.new()
 	dim.name = "HauntDim"
-	dim.color = Color(0.04, 0.02, 0.02, 0.84)
+	dim.color = Color(0.025, 0.05, 0.075, 0.40)
 	dim.set_anchors_preset(Control.PRESET_LEFT_WIDE)
 	dim.offset_left = 0
 	dim.offset_right = 520
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	lobby.add_child(dim)
+	var lobby_actors := _make_lobby_actors()
+	for actor in lobby_actors:
+		lobby.add_child(actor)
+	var desk_layer := _lobby_layer("res://assets/game/ui/lobby/layers/desk-cctv-props.png", 0.64)
+	lobby.add_child(desk_layer)
+	lobby_layers.append(desk_layer)
 
 	var cam := TextureRect.new()
 	cam.texture = _lobby_tex("res://assets/game/ui/lobby/cam.png")
@@ -376,9 +391,9 @@ func _build_lobby() -> void:
 	var rec := HauntTextScript.new()
 	rec.text = "REC  ●  CAM-04  17:59:00"
 	rec.font_size = 14
-	rec.amp = 2.0
+	rec.amp = 0.0
 	rec.align = HORIZONTAL_ALIGNMENT_RIGHT
-	rec.base_color = Color(0.86, 0.12, 0.12)
+	rec.base_color = Color(0.62, 0.88, 0.80)
 	rec.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	rec.offset_left = -300
 	rec.offset_top = 90
@@ -388,9 +403,9 @@ func _build_lobby() -> void:
 	var cam_lab := HauntTextScript.new()
 	cam_lab.text = "内部监控  严禁外传"
 	cam_lab.font_size = 12
-	cam_lab.amp = 1.8
+	cam_lab.amp = 0.0
 	cam_lab.align = HORIZONTAL_ALIGNMENT_RIGHT
-	cam_lab.base_color = Color(0.72, 0.62, 0.52)
+	cam_lab.base_color = Color(0.64, 0.74, 0.78)
 	cam_lab.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	cam_lab.offset_left = -240
 	cam_lab.offset_top = 112
@@ -417,9 +432,48 @@ func _build_lobby() -> void:
 		"rec": rec,
 		"lcd": home_page.get_node_or_null("HauntLcd"),
 		"led": home_page.get_node_or_null("HauntLed"),
+		"layers": lobby_layers,
+		"actors": lobby_actors,
 	})
 	haunt.dress(lobby)
 	_show_lobby_page("home")
+
+
+func _lobby_layer(path: String, alpha: float) -> TextureRect:
+	var layer := TextureRect.new()
+	layer.texture = _lobby_tex(path)
+	layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	layer.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	layer.modulate = Color(1, 1, 1, alpha)
+	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return layer
+
+
+func _make_lobby_actors() -> Array[Sprite2D]:
+	var frames := [
+		["res://assets/game/chars/horse/work_0.png", "res://assets/game/chars/horse/work_1.png", "res://assets/game/chars/horse/work_2.png", "res://assets/game/chars/horse/work_3.png"],
+		["res://assets/game/chars/rabbit/work_0.png", "res://assets/game/chars/rabbit/work_1.png", "res://assets/game/chars/rabbit/work_2.png", "res://assets/game/chars/rabbit/work_3.png"],
+		["res://assets/game/chars/cow/work_0.png", "res://assets/game/chars/cow/work_1.png", "res://assets/game/chars/cow/work_2.png", "res://assets/game/chars/cow/work_3.png"],
+		["res://assets/game/chars/pelican/work_0.png", "res://assets/game/chars/pelican/work_1.png", "res://assets/game/chars/pelican/work_2.png", "res://assets/game/chars/pelican/work_3.png"],
+		["res://assets/game/chars/tiger/idle_0.png", "res://assets/game/chars/tiger/idle_1.png", "res://assets/game/chars/tiger/idle_2.png", "res://assets/game/chars/tiger/idle_3.png"],
+	]
+	var at := [Vector2(700, 510), Vector2(890, 440), Vector2(1080, 525), Vector2(1200, 390), Vector2(1030, 250)]
+	var out: Array[Sprite2D] = []
+	for i in frames.size():
+		var actor := Sprite2D.new()
+		var actor_frames: Array[Texture2D] = []
+		for path in frames[i]:
+			actor_frames.append(_lobby_tex(path))
+		actor.texture = actor_frames[0]
+		actor.position = at[i]
+		actor.scale = Vector2.ONE * (0.15 if i < 4 else 0.13)
+		actor.modulate = Color(0.78, 0.88, 0.94, 0.78 if i < 4 else 0.0)
+		actor.z_index = 2
+		actor.set_meta("lobby_actor", i)
+		actor.set_meta("lobby_frames", actor_frames)
+		out.append(actor)
+	return out
 
 
 func _build_home_page() -> void:
@@ -454,7 +508,7 @@ func _build_home_page() -> void:
 	lcd_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	home_page.add_child(lcd_bg)
 	var tape := ColorRect.new()
-	tape.color = Color(0.08, 0.06, 0.05, 0.92)
+	tape.color = Color(0.07, 0.12, 0.15, 0.88)
 	tape.position = Vector2(322, 214)
 	tape.size = Vector2(122, 22)
 	tape.rotation = -0.04
@@ -463,7 +517,7 @@ func _build_home_page() -> void:
 	var tape_lab := HauntTextScript.new()
 	tape_lab.text = "未授权离开"
 	tape_lab.font_size = 11
-	tape_lab.amp = 1.6
+	tape_lab.amp = 0.0
 	tape_lab.position = Vector2(4, 2)
 	tape_lab.size = Vector2(114, 18)
 	tape_lab.base_color = Color(0.78, 0.72, 0.64)
@@ -474,8 +528,8 @@ func _build_home_page() -> void:
 	stamp.rotation = 0.28
 	stamp.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var stamp_sb := StyleBoxFlat.new()
-	stamp_sb.bg_color = Color(0.7, 0.06, 0.06, 0.05)
-	stamp_sb.border_color = Color(0.78, 0.12, 0.1, 0.9)
+	stamp_sb.bg_color = Color(0.12, 0.30, 0.32, 0.08)
+	stamp_sb.border_color = Color(0.34, 0.70, 0.66, 0.75)
 	stamp_sb.set_border_width_all(3)
 	stamp_sb.set_corner_radius_all(29)
 	stamp.add_theme_stylebox_override("panel", stamp_sb)
@@ -483,16 +537,16 @@ func _build_home_page() -> void:
 	var stamp_lab := HauntTextScript.new()
 	stamp_lab.text = "不准\n离岗"
 	stamp_lab.font_size = 12
-	stamp_lab.amp = 1.4
+	stamp_lab.amp = 0.0
 	stamp_lab.wrap = true
 	stamp_lab.align = HORIZONTAL_ALIGNMENT_CENTER
-	stamp_lab.base_color = Color(0.86, 0.16, 0.12)
+	stamp_lab.base_color = Color(0.48, 0.84, 0.76)
 	stamp_lab.position = Vector2(4, 10)
 	stamp_lab.size = Vector2(50, 40)
 	stamp.add_child(stamp_lab)
 	var led := ColorRect.new()
 	led.name = "HauntLed"
-	led.color = Color(0.92, 0.08, 0.08, 1)
+	led.color = Color(0.46, 0.92, 0.72, 1)
 	led.position = Vector2(430, 108)
 	led.size = Vector2(10, 10)
 	led.pivot_offset = Vector2(5, 5)
@@ -504,16 +558,16 @@ func _build_home_page() -> void:
 	lcd.position = Vector2(328, 124)
 	lcd.size = Vector2(108, 28)
 	lcd.font_size = 16
-	lcd.amp = 2.2
+	lcd.amp = 0.0
 	lcd.align = HORIZONTAL_ALIGNMENT_CENTER
 	lcd.base_color = Color(0.55, 0.95, 0.42)
 	home_page.add_child(lcd)
 	var over := HauntTextScript.new()
-	over.text = "逾  时"
+	over.text = "今日状态"
 	over.position = Vector2(328, 88)
 	over.size = Vector2(108, 22)
 	over.font_size = 13
-	over.amp = 2.0
+	over.amp = 0.0
 	over.align = HORIZONTAL_ALIGNMENT_CENTER
 	over.base_color = Color(0.9, 0.78, 0.7)
 	home_page.add_child(over)
@@ -524,41 +578,41 @@ func _build_home_page() -> void:
 	title.position = Vector2(72, 8)
 	title.size = Vector2(240, 48)
 	title.font_size = 40
-	title.amp = 4.2
-	title.chroma = 1.8
-	title.base_color = Color(0.92, 0.84, 0.74)
+	title.amp = 0.0
+	title.chroma = 0.0
+	title.base_color = Color(0.88, 0.94, 0.92)
 	home_page.add_child(title)
 
 	var tag := HauntTextScript.new()
 	tag.name = "HauntTag"
-	tag.text = "谁准你下班"
+	tag.text = "夜班办公系统  ·  18:00 后仍在运行"
 	tag.position = Vector2(74, 54)
 	tag.size = Vector2(230, 24)
 	tag.font_size = 16
-	tag.amp = 3.2
-	tag.base_color = Color(0.82, 0.16, 0.14)
+	tag.amp = 0.0
+	tag.base_color = Color(0.48, 0.76, 0.76)
 	home_page.add_child(tag)
 
 	var mood := HauntTextScript.new()
 	mood.name = "HauntMood"
-	mood.text = "白灯还亮着。走廊那头有人站着。"
+	mood.text = "今晚的工位仍亮着灯。请完成打卡，再决定是否离开。"
 	mood.position = Vector2(0, 96)
 	mood.size = Vector2(300, 44)
 	mood.font_size = 13
-	mood.amp = 1.8
+	mood.amp = 0.0
 	mood.wrap = true
 	mood.base_color = Color(0.72, 0.64, 0.56)
 	home_page.add_child(mood)
 
 	var paper := ColorRect.new()
-	paper.color = Color(0.42, 0.06, 0.06, 0.95)
+	paper.color = Color(0.10, 0.16, 0.18, 0.94)
 	paper.position = Vector2(0, 508)
 	paper.size = Vector2(300, 96)
 	paper.rotation = -0.045
 	paper.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	home_page.add_child(paper)
 	var head := ColorRect.new()
-	head.color = Color(0.62, 0.08, 0.08, 1)
+	head.color = Color(0.22, 0.52, 0.54, 1)
 	head.position = Vector2(0, 0)
 	head.size = Vector2(300, 8)
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -568,7 +622,7 @@ func _build_home_page() -> void:
 	paper_lab.position = Vector2(10, 12)
 	paper_lab.size = Vector2(280, 80)
 	paper_lab.font_size = 13
-	paper_lab.amp = 1.7
+	paper_lab.amp = 0.0
 	paper_lab.wrap = true
 	paper_lab.base_color = Color(0.96, 0.86, 0.76)
 	paper.add_child(paper_lab)
@@ -585,7 +639,7 @@ func _build_home_page() -> void:
 	poster_lab.position = Vector2(8, 8)
 	poster_lab.size = Vector2(112, 72)
 	poster_lab.font_size = 12
-	poster_lab.amp = 1.8
+	poster_lab.amp = 0.0
 	poster_lab.wrap = true
 	poster_lab.base_color = Color(0.22, 0.12, 0.1)
 	poster.add_child(poster_lab)
@@ -699,7 +753,7 @@ func _build_char_page() -> void:
 	char_page.add_child(t)
 	var d := HauntTextScript.new()
 	d.name = "HauntD"
-	d.text = "核验人像。玻璃后面那位，不要对视太久。"
+	d.text = "选择员工或 Boss，再确认打卡。测试房空位由 Bot 补齐。"
 	d.position = Vector2(28, 56)
 	d.size = Vector2(900, 28)
 	d.font_size = 15
@@ -711,11 +765,15 @@ func _build_char_page() -> void:
 	slot_box.size = Vector2(944, 320)
 	slot_box.add_theme_constant_override("separation", 14)
 	char_page.add_child(slot_box)
-	var back := _lobby_btn("返回走廊", true)
+	var back := _lobby_btn("返回走廊", false)
 	back.position = Vector2(28, 460)
 	back.size = Vector2(180, 48)
 	back.pressed.connect(func(): _show_lobby_page("home"))
 	char_page.add_child(back)
+	var enter := _lobby_btn("确认身份 · 打卡上班", true)
+	enter.position = Vector2(640, 460)
+	enter.pressed.connect(_confirm_start)
+	char_page.add_child(enter)
 
 
 func _show_lobby_page(page: String) -> void:
@@ -730,6 +788,14 @@ func _show_lobby_page(page: String) -> void:
 
 
 func _click_start() -> void:
+	_show_lobby_page("char")
+
+
+func _confirm_start() -> void:
+	if Net.connected and not Net.is_server:
+		Match.claim_local(wanted_slot, name_edit.text)
+		_show_lobby_page("home")
+		return
 	if Net.is_server:
 		Match.start_local(short_check.button_pressed, false)
 	else:
@@ -759,16 +825,16 @@ func _lobby_btn(text: String, primary: bool) -> Button:
 	var hover := sb.duplicate() as StyleBoxFlat
 	var cap_col := Color(0.82, 0.74, 0.66)
 	if primary:
-		sb.bg_color = Color(0.42, 0.05, 0.05, 0.94)
-		sb.border_color = Color(0.72, 0.16, 0.12)
-		hover.bg_color = Color(0.58, 0.08, 0.08, 0.96)
-		hover.border_color = Color(0.9, 0.28, 0.18)
-		cap_col = Color(0.96, 0.82, 0.7)
+		sb.bg_color = Color(0.10, 0.34, 0.34, 0.94)
+		sb.border_color = Color(0.38, 0.78, 0.70)
+		hover.bg_color = Color(0.14, 0.46, 0.44, 0.96)
+		hover.border_color = Color(0.62, 0.94, 0.82)
+		cap_col = Color(0.90, 0.98, 0.94)
 	else:
-		sb.bg_color = Color(0.10, 0.08, 0.07, 0.92)
-		sb.border_color = Color(0.42, 0.18, 0.14)
-		hover.bg_color = Color(0.16, 0.10, 0.09, 0.96)
-		hover.border_color = Color(0.7, 0.22, 0.16)
+		sb.bg_color = Color(0.06, 0.12, 0.16, 0.92)
+		sb.border_color = Color(0.20, 0.44, 0.50)
+		hover.bg_color = Color(0.09, 0.20, 0.24, 0.96)
+		hover.border_color = Color(0.42, 0.72, 0.74)
 	b.add_theme_stylebox_override("normal", sb)
 	b.add_theme_stylebox_override("hover", hover)
 	b.add_theme_stylebox_override("pressed", hover)
@@ -780,8 +846,8 @@ func _lobby_btn(text: String, primary: bool) -> Button:
 	cap.name = "HauntCap"
 	cap.text = text
 	cap.font_size = 18
-	cap.amp = 3.1
-	cap.chroma = 1.3
+	cap.amp = 0.0
+	cap.chroma = 0.0
 	cap.align = HORIZONTAL_ALIGNMENT_CENTER
 	cap.base_color = cap_col
 	cap.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -963,7 +1029,7 @@ func _refresh_lobby() -> void:
 	elif Net.connected:
 		status_label.text = "已接入监控。核验身份，等主管开局。"
 	else:
-		status_label.text = "打卡上班会进试用期。也可以接入别人的监控。"
+		status_label.text = "打卡上班：先选员工或 Boss，再进入测试房。空位由 Bot 补齐。"
 	if slot_box == null:
 		return
 	for c in slot_box.get_children():
@@ -1388,10 +1454,10 @@ func _update_camera(delta: float) -> void:
 func _camera_goal(actor: Actor) -> Dictionary:
 	if actor == null:
 		return {"pos": OfficeMap.DESK_RECT.get_center(), "zoom": _frame_room(OfficeMap.DESK_RECT).x}
-	var rect := office.view_rect_at(actor.global_position)
+	var rect: Rect2 = office.view_rect_at(actor.global_position)
 	var z := _frame_room(rect).x
-	var center := rect.get_center()
-	var bias := actor.global_position - center
+	var center: Vector2 = rect.get_center()
+	var bias: Vector2 = actor.global_position - center
 	bias.x = clampf(bias.x * 0.22, -rect.size.x * 0.16, rect.size.x * 0.16)
 	bias.y = clampf(bias.y * 0.22, -rect.size.y * 0.16, rect.size.y * 0.16)
 	return {"pos": center + bias, "zoom": z}

@@ -1282,13 +1282,15 @@ class FloorPainter extends Node2D:
 	var tex_carpet: Texture2D
 	var tex_hall: Texture2D
 	var tex_bath: Texture2D
+	var tex_tea: Texture2D
 
 	func _ready() -> void:
 		z_index = -10
 		z_as_relative = false
-		tex_carpet = _file_tex("res://assets/game/props/horror/floor_carpet.png")
-		tex_hall = _file_tex("res://assets/game/props/horror/floor_hall.png")
-		tex_bath = _file_tex("res://assets/game/props/horror/floor_bath.png")
+		tex_carpet = _file_tex("res://assets/game/props/horror/floor_carpet_afterhours.png")
+		tex_hall = _file_tex("res://assets/game/props/horror/floor_hall_afterhours.png")
+		tex_bath = _file_tex("res://assets/game/props/horror/floor_bath_afterhours.png")
+		tex_tea = _file_tex("res://assets/game/props/horror/floor_tea_afterhours.png")
 		queue_redraw()
 
 	func _file_tex(path: String) -> Texture2D:
@@ -1301,7 +1303,7 @@ class FloorPainter extends Node2D:
 		draw_rect(Rect2(0, 0, 2560, 1520), Color(0.08, 0.08, 0.10), true)
 		_fill(Rect2(40, 40, 460, 520), tex_bath, Color(0.28, 0.32, 0.32))
 		_fill(Rect2(500, 40, 480, 520), tex_hall, Color(0.22, 0.22, 0.24))
-		_fill(Rect2(980, 40, 720, 520), tex_carpet, Color(0.32, 0.28, 0.24))
+		_fill(Rect2(980, 40, 720, 520), tex_tea, Color(0.32, 0.28, 0.24))
 		_fill(Rect2(1700, 40, 820, 520), tex_carpet, Color(0.24, 0.26, 0.24))
 		_fill(Rect2(40, 560, 2480, 220), tex_hall, Color(0.16, 0.16, 0.18))
 		_fill(Rect2(40, 780, 480, 700), tex_hall, Color(0.22, 0.22, 0.24))

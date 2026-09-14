@@ -216,7 +216,9 @@ func sync_actor(slot: int, x: float, y: float, st: int, h: float, e: float, vis:
 		return
 	if not actors.has(slot):
 		return
-	(actors[slot] as Actor).apply_snapshot(x, y, st, h, e, vis, mcd, kcd, dcd, talk, rescue)
+	var actor := actors[slot] as Actor
+	var state := Rules.EmpState.CARRIED if actor.carried_by >= 0 else (Rules.EmpState.WALK if st == Rules.EmpState.CARRIED else st)
+	actor.apply_snapshot(x, y, state, h, e, vis, mcd, kcd, dcd, talk, rescue)
 
 
 @rpc("authority", "unreliable")
@@ -261,7 +263,7 @@ func is_catchable(emp: Actor) -> bool:
 		return false
 	if emp.emp_state == Rules.EmpState.SLACK or emp.emp_state == Rules.EmpState.COFFEE or emp.emp_state == Rules.EmpState.TOILET:
 		return true
-	return emp.rescue_left > 0.0
+	return emp.rescue_left > 0.0 or emp.carrying_slot >= 0
 
 
 func nearest_talk(from: Vector2, max_d: float) -> Actor:
@@ -314,6 +316,106 @@ func finish_talk(emp: Actor) -> void:
 	var add := Rules.CATCH_HOURS_REPEAT if repeat else Rules.CATCH_HOURS_FIRST
 	emp.apply_catch(repeat, 0.0)
 	notify_caught.rpc(emp.slot, repeat, add)
+
+
+# Prototype interaction: any available employee can take the pelican shuttle.
+func nearest_carry_target(carrier: Actor) -> Actor:
+	if carrier.skin != Rules.CharSkin.PELICAN or carrier.carry_recovery > 0.0 or carrier.carrying_slot >= 0:
+		return null
+	var best: Actor = null
+	var distance := Rules.CARRY_RANGE
+	for value in actors.values():
+		var candidate := value as Actor
+		if candidate == carrier or candidate.kind != Rules.Kind.EMPLOYEE or candidate.carried_by >= 0:
+			continue
+		if candidate.emp_state in [Rules.EmpState.MEETING, Rules.EmpState.CLOCKING, Rules.EmpState.LEFT]:
+			continue
+		var d := carrier.global_position.distance_to(candidate.global_position)
+		if d < distance and _can_see(carrier.global_position, candidate.global_position):
+			best = candidate
+			distance = d
+	return best
+
+
+func try_carry(carrier: Actor) -> bool:
+	if not multiplayer.is_server() or not playing or carrier.is_bot():
+		return false
+	if carrier.emp_state != Rules.EmpState.WALK or carrier.stand_lock > 0.0 or carrier.carried_by >= 0:
+		return false
+	var passenger := nearest_carry_target(carrier)
+	if passenger == null:
+		return false
+	passenger.carry_saved_talk = passenger.talk_progress if passenger.emp_state == Rules.EmpState.TALK else -1.0
+	passenger._stand_up()
+	passenger.clear_rescue()
+	carrier.clear_rescue()
+	carrier._facing.x = 1.0 if passenger.global_position.x >= carrier.global_position.x else -1.0
+	carry_event.rpc(carrier.slot, passenger.slot, true, passenger.global_position, false, carrier._facing.x)
+	return true
+
+
+func release_actor_carry(actor: Actor, interrupted := false) -> void:
+	if actor.carrying_slot >= 0:
+		release_carry(actor, interrupted)
+	elif actor.carried_by >= 0:
+		var carrier := actors.get(actor.carried_by) as Actor
+		if carrier != null:
+			release_carry(carrier, interrupted)
+
+
+func release_carry(carrier: Actor, interrupted := false) -> void:
+	if not multiplayer.is_server() or carrier.carrying_slot < 0:
+		return
+	var passenger := actors.get(carrier.carrying_slot) as Actor
+	if passenger == null:
+		carrier.carrying_slot = -1
+		return
+	# Use a swept body check; fallback to the carrier's safe foot position.
+	var landing := carrier.global_position
+	for direction in [Vector2(carrier._facing.x, 0).normalized(), Vector2.DOWN, Vector2.UP, Vector2.LEFT, Vector2.RIGHT]:
+		if direction == Vector2.ZERO:
+			continue
+		var movement: Vector2 = direction * 30.0
+		if not passenger.test_move(Transform2D(0.0, carrier.global_position), movement):
+			landing += movement
+			break
+	carry_event.rpc(carrier.slot, passenger.slot, false, landing, interrupted, carrier._facing.x)
+
+
+@rpc("authority", "call_local", "reliable")
+func carry_event(carrier_slot: int, passenger_slot: int, pickup: bool, pos: Vector2, interrupted: bool, facing: float) -> void:
+	var carrier := actors.get(carrier_slot) as Actor
+	var passenger := actors.get(passenger_slot) as Actor
+	if carrier == null or passenger == null:
+		return
+	carrier._facing.x = facing
+	if pickup:
+		carrier.carrying_slot = passenger_slot
+		carrier.carry_left = Rules.CARRY_DURATION
+		carrier.carry_windup = Rules.CARRY_WINDUP
+		passenger.carried_by = carrier_slot
+		passenger.emp_state = Rules.EmpState.CARRIED
+		passenger.velocity = Vector2.ZERO
+		if carrier.carry_visual:
+			carrier.carry_visual.pickup(passenger, pos)
+		carrier.say("跨部门转运，走你！", 1.5)
+	else:
+		carrier.carrying_slot = -1
+		carrier.carry_left = 0.0
+		carrier.carry_windup = 0.0
+		carrier.carry_recovery = Rules.CARRY_RECOVERY
+		passenger.carried_by = -1
+		passenger.emp_state = Rules.EmpState.TALK if interrupted and passenger.carry_saved_talk >= 0.0 else Rules.EmpState.WALK
+		passenger.talk_progress = maxf(0.0, passenger.carry_saved_talk) if interrupted else 0.0
+		passenger.carry_saved_talk = -1.0
+		passenger.global_position = pos
+		passenger._remote_pos = pos
+		passenger.landing_left = 0.4
+		passenger.input_dir = Vector2.ZERO
+		passenger.want_interact = false
+		if carrier.carry_visual:
+			carrier.carry_visual.release()
+		passenger.say("谢谢顺风嘴！" if not interrupted else "转运中断！", 1.4)
 
 
 func try_rescue(rescuer: Actor) -> bool:
@@ -385,7 +487,7 @@ func try_meeting(boss: Actor) -> bool:
 		var e := a as Actor
 		if e.kind != Rules.Kind.EMPLOYEE:
 			continue
-		if e.emp_state == Rules.EmpState.LEFT or e.emp_state == Rules.EmpState.CLOCKING:
+		if e.emp_state in [Rules.EmpState.LEFT, Rules.EmpState.CLOCKING, Rules.EmpState.CARRIED]:
 			continue
 		var d := boss.global_position.distance_to(e.global_position)
 		if d > best_d:
@@ -437,6 +539,8 @@ func _all_punched() -> bool:
 
 
 func _finish() -> void:
+	for actor in actors.values():
+		release_actor_carry(actor)
 	if phase == "result":
 		return
 	playing = false
@@ -506,6 +610,9 @@ func _on_peers() -> void:
 	for s in slots.keys():
 		var pid := int(slots[s])
 		if pid > 0 and not alive.has(pid):
+			var disconnected := actors.get(s) as Actor
+			if disconnected != null:
+				release_actor_carry(disconnected, true)
 			slots[s] = -1
 	_broadcast_lobby()
 
