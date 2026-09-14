@@ -44,6 +44,12 @@ var desk_screens: Array[Sprite2D] = []
 var desk_left: Array[bool] = [false, false, false, false]
 var day_mod: CanvasModulate
 var dusk_veil: ColorRect
+var wall_cams: Array[Sprite2D] = []
+var cam_leds: Array[ColorRect] = []
+var flicker_lights: Array[ColorRect] = []
+var gloom_veils: Array[ColorRect] = []
+var gloom_base: Array[float] = []
+var flicker_t := 0.0
 
 
 func _ready() -> void:
@@ -69,9 +75,10 @@ func _ready() -> void:
 	add_child(dusk_veil)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	apply_daylight(Match.day_progress())
 	_sync_left_desks()
+	_tick_horror(delta)
 
 
 func _build_walls() -> void:
@@ -194,6 +201,7 @@ func _build_furniture() -> void:
 	_dress_meeting()
 	_dress_corridor()
 	_dress_desk_shared()
+	_dress_horror()
 
 
 func _cubicle(idx: int, seat: Vector2, desk: Vector2) -> void:
@@ -208,7 +216,7 @@ func _cubicle(idx: int, seat: Vector2, desk: Vector2) -> void:
 	_prop("res://assets/game/props/coffee.png", desk + Vector2(-70 if right else 70, 14), 22, -3)
 	_prop("res://assets/game/props/plant.png", desk + Vector2(108 if right else -108, -22), 48, -3)
 	_prop("res://assets/game/props/phone.png", desk + Vector2(36 if right else -36, 20), 18, -3)
-	_frame(Rect2(desk.x + (-150 if right else 86), desk.y - 118, 58, 42), Color(0.28, 0.30, 0.34))
+	_frame(Rect2(desk.x + (-150 if right else 86), desk.y - 118, 58, 42), Color(0.10, 0.11, 0.13) if idx == 2 else Color(0.28, 0.30, 0.34))
 	_shelf(desk + Vector2(-130 if right else 90, -88), right)
 
 
@@ -245,8 +253,9 @@ func _dress_desk_shared() -> void:
 	_prop("res://assets/game/props/cabinet.png", Vector2(600, 1430), 70, -4)
 	_prop("res://assets/game/props/cabinet.png", Vector2(1540, 1430), 70, -4)
 	_prop("res://assets/game/props/file.png", Vector2(600, 1396), 24, -3)
-	_frame(Rect2(560, 786, 70, 48), Color(0.32, 0.34, 0.38))
-	_frame(Rect2(1590, 786, 70, 48), Color(0.55, 0.58, 0.62))
+	_frame(Rect2(560, 786, 70, 48), Color(0.10, 0.11, 0.13))
+	_frame(Rect2(1590, 786, 70, 48), Color(0.18, 0.16, 0.16))
+	_notice(Vector2(640, 788), "18:00 离开", 92)
 
 
 func _partition(rect: Rect2) -> void:
@@ -264,7 +273,10 @@ func _dress_toilet() -> void:
 	_prop("res://assets/game/props/sink.png", Vector2(340, 368), 92, -4)
 	_prop("res://assets/game/props/plant.png", Vector2(430, 470), 54, -3)
 	_prop("res://assets/game/props/door.png", Vector2(180, 528), 46, -3)
-	_frame(Rect2(70, 300, 48, 36), Color(0.70, 0.78, 0.84))
+	_frame(Rect2(70, 300, 48, 36), Color(0.22, 0.28, 0.32))
+	_stain(Rect2(188, 78, 22, 96), 0.22)
+	_notice(Vector2(310, 300), "随手关门", 80)
+	_rect(Rect2(72, 72, 176, 220), Color(0.08, 0.10, 0.12, 0.10), -5)
 
 
 func _stall(rect: Rect2, toilet_at: Vector2) -> void:
@@ -285,7 +297,11 @@ func _dress_storage() -> void:
 	_prop("res://assets/game/props/file.png", Vector2(760, 238), 28, -3)
 	_prop("res://assets/game/props/plant.png", Vector2(920, 470), 56, -3)
 	_prop("res://assets/game/props/door.png", Vector2(740, 528), 46, -3)
-	_frame(Rect2(520, 70, 52, 40), Color(0.45, 0.48, 0.52))
+	_frame(Rect2(520, 70, 52, 40), Color(0.08, 0.08, 0.10))
+	_gloom(Rect2(508, 48, 456, 500), 0.16)
+	_stain(Rect2(790, 64, 48, 28), 0.28)
+	_notice(Vector2(540, 300), "非公勿入", 80)
+	_rect(Rect2(686, 250, 10, 54), Color(0.04, 0.04, 0.05, 0.72), -3)
 
 
 func _dress_tea() -> void:
@@ -312,29 +328,33 @@ func _dress_lounge() -> void:
 	_prop("res://assets/game/props/plant.png", Vector2(1788, 430), 58, -3)
 	_prop("res://assets/game/props/books.png", Vector2(2300, 360), 36, -3)
 	_prop("res://assets/game/props/door.png", Vector2(1840, 528), 46, -3)
-	_frame(Rect2(2280, 80, 72, 52), Color(0.34, 0.42, 0.36))
-	_frame(Rect2(1760, 80, 56, 40), Color(0.50, 0.56, 0.48))
+	_frame(Rect2(2280, 80, 72, 52), Color(0.10, 0.12, 0.12))
+	_frame(Rect2(1760, 80, 56, 40), Color(0.28, 0.32, 0.28))
 
 
 func _dress_lobby() -> void:
 	_rect(Rect2(64, 848, 400, 86), Color(0.94, 0.95, 0.97), -5)
 	_rect(Rect2(64, 848, 400, 14), Color(0.78, 0.82, 0.88), -4)
 	_rect(Rect2(80, 920, 368, 12), Color(0.16, 0.18, 0.22, 0.12), -6)
-	_prop("res://assets/game/props/clock.png", points["punch_0"], 52, -4)
-	_prop("res://assets/game/props/clock.png", points["punch_1"], 52, -4)
+	_prop("res://assets/game/ui/lobby/punch.png", points["punch_0"], 58, -4)
+	_prop("res://assets/game/ui/lobby/punch.png", points["punch_1"], 58, -4)
 	_prop("res://assets/game/props/cabinet.png", Vector2(90, 1180), 74, -4)
 	_prop("res://assets/game/props/sofa.png", Vector2(280, 1280), 180, -4)
 	_prop("res://assets/game/props/plant.png", Vector2(90, 1320), 62, -3)
 	_prop("res://assets/game/props/plant.png", Vector2(440, 1420), 58, -3)
 	_prop("res://assets/game/props/door.png", Vector2(180, 748), 46, -3)
-	_frame(Rect2(72, 800, 74, 52), Color(0.50, 0.56, 0.64))
+	_frame(Rect2(72, 800, 74, 52), Color(0.12, 0.13, 0.16))
 	_prop("res://assets/game/props/file.png", Vector2(120, 1140), 26, -3)
+	_gloom(Rect2(48, 788, 160, 280), 0.14)
+	_notice(Vector2(160, 802), "全楼监控", 88)
+	_tag(Vector2(72, 1360), "谁准你下班")
 
 
 func _dress_meeting() -> void:
-	_rect(Rect2(1860, 820, 520, 140), Color(0.18, 0.20, 0.24), -5)
-	_rect(Rect2(1880, 836, 480, 108), Color(0.42, 0.62, 0.84), -4)
-	_prop("res://assets/game/props/browser_ui.png", Vector2(2120, 890), 300, -3)
+	_rect(Rect2(1860, 820, 520, 140), Color(0.10, 0.11, 0.14), -5)
+	_rect(Rect2(1880, 836, 480, 108), Color(0.22, 0.38, 0.48), -4)
+	var board := _prop("res://assets/game/props/browser_ui.png", Vector2(2120, 890), 300, -3)
+	board.modulate = Color(0.55, 0.66, 0.72)
 	_prop("res://assets/game/props/meeting.png", points["meeting"], 280, -4)
 	_prop("res://assets/game/props/chair.png", points["meeting"] + Vector2(-100, 64), 56, -3)
 	_prop("res://assets/game/props/chair.png", points["meeting"] + Vector2(0, 70), 56, -3)
@@ -345,10 +365,12 @@ func _dress_meeting() -> void:
 	_prop("res://assets/game/props/paper.png", points["meeting"] + Vector2(70, 8), 28, -3)
 	_prop("res://assets/game/props/plant.png", Vector2(2410, 900), 64, -3)
 	_prop("res://assets/game/props/door.png", Vector2(1860, 748), 46, -3)
-	_frame(Rect2(1760, 860, 58, 70), Color(0.96, 0.96, 0.97))
-	_rect(Rect2(1768, 872, 42, 4), Color(0.78, 0.80, 0.84), -2)
-	_rect(Rect2(1768, 882, 36, 4), Color(0.78, 0.80, 0.84), -2)
-	_rect(Rect2(1768, 892, 40, 4), Color(0.78, 0.80, 0.84), -2)
+	_frame(Rect2(1760, 860, 58, 70), Color(0.08, 0.08, 0.10))
+	_rect(Rect2(1768, 872, 42, 4), Color(0.42, 0.16, 0.16), -2)
+	_rect(Rect2(1768, 882, 36, 4), Color(0.28, 0.30, 0.32), -2)
+	_rect(Rect2(1768, 892, 40, 4), Color(0.28, 0.30, 0.32), -2)
+	_notice(Vector2(1890, 822), "REC  ●", 72)
+	_gloom(Rect2(1728, 788, 780, 120), 0.12)
 
 
 func _dress_corridor() -> void:
@@ -356,8 +378,130 @@ func _dress_corridor() -> void:
 		_prop("res://assets/game/props/plant.png", Vector2(x, 590), 50, -3)
 	_prop("res://assets/game/props/cabinet.png", Vector2(980, 720), 58, -4)
 	_prop("res://assets/game/props/cabinet.png", Vector2(1580, 720), 58, -4)
-	_frame(Rect2(640, 580, 80, 54), Color(0.40, 0.44, 0.50))
-	_frame(Rect2(1500, 580, 80, 54), Color(0.55, 0.50, 0.46))
+	_frame(Rect2(640, 580, 80, 54), Color(0.08, 0.09, 0.11))
+	_frame(Rect2(1500, 580, 80, 54), Color(0.12, 0.10, 0.10))
+	_notice(Vector2(1188, 582), "禁止停留", 80)
+	_prop("res://assets/game/props/chair.png", Vector2(2320, 742), 64, -3)
+
+
+func _dress_horror() -> void:
+	_cam(Vector2(180, 518), 46, false)
+	_cam(Vector2(740, 518), 42, true)
+	_cam(Vector2(1340, 518), 46, false)
+	_cam(Vector2(1840, 518), 42, true)
+	_cam(Vector2(90, 736), 46, false)
+	_cam(Vector2(1988, 736), 44, true)
+	_cam(Vector2(1100, 778), 40, false)
+	_cam(Vector2(400, 778), 40, true)
+	_exit_sign(Vector2(214, 778))
+	_exit_sign(Vector2(1898, 778))
+	_exit_sign(Vector2(2468, 568))
+	_gloom(Rect2(40, 560, 260, 220), 0.22)
+	_gloom(Rect2(2260, 560, 260, 220), 0.32)
+	_gloom(Rect2(40, 560, 2480, 40), 0.16)
+	for door_x in [180.0, 740.0, 1340.0, 1840.0]:
+		_gloom(Rect2(door_x - 48, 554, 96, 86), 0.18)
+	_stain(Rect2(420, 568, 70, 18), 0.2)
+	_stain(Rect2(1688, 572, 54, 16), 0.18)
+	_shadow_figure(Vector2(2468, 646))
+	_fluorescent(Vector2(180, 610))
+	_fluorescent(Vector2(1340, 610))
+	_dead_light(Vector2(740, 610))
+	_dead_light(Vector2(1980, 610))
+	_dead_light(Vector2(220, 96))
+	_prop("res://assets/game/ui/lobby/clock.png", Vector2(2408, 586), 40, 2)
+
+
+func _cam(pos: Vector2, width: float, flip: bool) -> void:
+	var s := _prop("res://assets/game/ui/lobby/cam.png", pos, width, 2)
+	s.flip_h = flip
+	s.modulate = Color(0.90, 0.91, 0.93)
+	wall_cams.append(s)
+	var led := ColorRect.new()
+	led.color = Color(0.92, 0.14, 0.12, 0.95)
+	led.size = Vector2(6, 6)
+	led.position = pos + Vector2((-width * 0.08) if flip else (width * 0.08), -6)
+	led.z_index = 3
+	led.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(led)
+	cam_leds.append(led)
+
+
+func _exit_sign(pos: Vector2) -> void:
+	_rect(Rect2(pos.x - 2, pos.y - 2, 56, 22), Color(0.22, 0.06, 0.06), 1)
+	_rect(Rect2(pos.x, pos.y, 52, 18), Color(0.78, 0.12, 0.14), 2)
+	var lab := Label.new()
+	lab.text = "EXIT"
+	lab.position = pos + Vector2(7, 0)
+	lab.add_theme_font_size_override("font_size", 11)
+	lab.add_theme_color_override("font_color", Color(0.98, 0.96, 0.96))
+	lab.z_index = 3
+	add_child(lab)
+
+
+func _notice(pos: Vector2, text: String, width: float = 88.0) -> void:
+	_rect(Rect2(pos.x, pos.y, width, 20), Color(0.14, 0.15, 0.18, 0.92), 1)
+	var lab := Label.new()
+	lab.text = text
+	lab.position = pos + Vector2(6, 1)
+	lab.size = Vector2(width - 8, 18)
+	lab.add_theme_font_size_override("font_size", 11)
+	lab.add_theme_color_override("font_color", Color(0.82, 0.86, 0.88))
+	lab.z_index = 2
+	add_child(lab)
+
+
+func _tag(pos: Vector2, text: String) -> void:
+	var lab := Label.new()
+	lab.text = text
+	lab.position = pos
+	lab.add_theme_font_size_override("font_size", 13)
+	lab.add_theme_color_override("font_color", Color("00B8D4"))
+	lab.z_index = 2
+	add_child(lab)
+
+
+func _stain(rect: Rect2, alpha: float) -> void:
+	_rect(rect, Color(0.28, 0.32, 0.34, alpha), -8)
+	_rect(Rect2(rect.position.x + 8, rect.position.y + 6, rect.size.x * 0.45, rect.size.y * 0.7), Color(0.18, 0.22, 0.24, alpha * 0.8), -8)
+
+
+func _gloom(rect: Rect2, alpha: float) -> ColorRect:
+	var vis := _rect(rect, Color(0.05, 0.06, 0.08, alpha), -7)
+	gloom_veils.append(vis)
+	gloom_base.append(alpha)
+	return vis
+
+
+func _fluorescent(pos: Vector2) -> void:
+	var glow := _rect(Rect2(pos.x - 52, pos.y - 8, 104, 28), Color(1, 1, 0.88, 0.10), -8)
+	flicker_lights.append(glow)
+
+
+func _dead_light(pos: Vector2) -> void:
+	_rect(Rect2(pos.x - 22, pos.y - 8, 44, 8), Color(0.22, 0.24, 0.26, 0.85), -8)
+
+
+func _shadow_figure(pos: Vector2) -> void:
+	var fig := ShadowFigure.new()
+	fig.position = pos
+	fig.z_index = -6
+	add_child(fig)
+
+
+func _tick_horror(_delta: float) -> void:
+	flicker_t += _delta
+	var pulse := 0.62 + 0.38 * sin(flicker_t * 5.4)
+	var hitch := fmod(flicker_t * 0.31, 1.0)
+	if hitch < 0.035 or hitch > 0.975:
+		pulse = 0.08
+	for n in flicker_lights:
+		n.color = Color(1.0, 1.0, 0.88, 0.06 + 0.10 * pulse)
+	var led_on := int(Time.get_ticks_msec() / 460) % 2 == 0
+	for led in cam_leds:
+		led.color.a = 0.95 if led_on else 0.12
+	for cam in wall_cams:
+		cam.modulate = Color(0.94, 0.95, 0.96) if led_on else Color(0.80, 0.82, 0.84)
 
 
 func _build_labels() -> void:
@@ -425,15 +569,16 @@ func _prop(path: String, pos: Vector2, width: float, z: int) -> Sprite2D:
 
 
 func _build_clocks() -> void:
-	_wall_clock(Vector2(270, 818), 34.0)
-	_wall_clock(Vector2(1280, 588), 30.0)
-	_wall_clock(Vector2(2100, 818), 28.0)
+	_wall_clock(Vector2(270, 818), 34.0, true)
+	_wall_clock(Vector2(1280, 588), 30.0, false)
+	_wall_clock(Vector2(2100, 818), 28.0, false)
 
 
-func _wall_clock(pos: Vector2, radius: float) -> void:
+func _wall_clock(pos: Vector2, radius: float, frozen := false) -> void:
 	var clock := WallClock.new()
 	clock.position = pos
 	clock.radius = radius
+	clock.frozen = frozen
 	clock.z_index = 2
 	add_child(clock)
 	wall_clocks.append(clock)
@@ -442,9 +587,9 @@ func _wall_clock(pos: Vector2, radius: float) -> void:
 	lab.size = Vector2(56, 16)
 	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lab.add_theme_font_size_override("font_size", 11)
-	lab.add_theme_color_override("font_color", Color(0.28, 0.32, 0.36))
+	lab.add_theme_color_override("font_color", Color(0.72, 0.18, 0.16) if frozen else Color(0.28, 0.32, 0.36))
 	lab.z_index = 2
-	lab.text = "17:50"
+	lab.text = "18:00" if frozen else "17:50"
 	add_child(lab)
 	clock_labels.append(lab)
 
@@ -460,7 +605,11 @@ func apply_daylight(progress: float) -> void:
 	if day_mod:
 		day_mod.color = tone
 	if dusk_veil:
-		dusk_veil.color = Color(0.18, 0.08, 0.03, 0.22 * smoothstep(0.78, 1.0, p))
+		dusk_veil.color = Color(0.08, 0.06, 0.14, 0.34 * smoothstep(0.72, 1.0, p))
+	var extra := 0.12 * smoothstep(0.55, 1.0, p)
+	for i in gloom_veils.size():
+		if gloom_veils[i]:
+			gloom_veils[i].color.a = minf(0.52, gloom_base[i] + extra)
 	var pane := Color(0.72, 0.86, 0.94).lerp(Color(0.96, 0.58, 0.28), smoothstep(0.5, 1.0, p))
 	for w in window_panes:
 		if w:
@@ -469,8 +618,11 @@ func apply_daylight(progress: float) -> void:
 		(c as WallClock).progress = p
 		c.queue_redraw()
 	var text := Rules.office_clock_text(p)
-	for lab in clock_labels:
-		lab.text = text
+	for i in clock_labels.size():
+		if i < wall_clocks.size() and (wall_clocks[i] as WallClock).frozen:
+			clock_labels[i].text = "18:00"
+		else:
+			clock_labels[i].text = text
 
 
 func _sync_left_desks() -> void:
@@ -673,23 +825,43 @@ func _room_id(p: Vector2) -> int:
 class WallClock extends Node2D:
 	var radius := 34.0
 	var progress := 0.0
+	var frozen := false
 
 	func _draw() -> void:
-		draw_circle(Vector2.ZERO, radius + 3.0, Color(0.78, 0.82, 0.86))
-		draw_circle(Vector2.ZERO, radius, Color(0.97, 0.98, 0.99))
+		draw_circle(Vector2.ZERO, radius + 3.0, Color(0.58, 0.22, 0.22) if frozen else Color(0.78, 0.82, 0.86))
+		draw_circle(Vector2.ZERO, radius, Color(0.94, 0.94, 0.95) if frozen else Color(0.97, 0.98, 0.99))
 		for i in 12:
 			var a := deg_to_rad(-90.0 + float(i) * 30.0)
 			var outer := Vector2.from_angle(a) * (radius - 2.0)
 			var inner := Vector2.from_angle(a) * (radius - (8.0 if i % 3 == 0 else 5.0))
 			draw_line(inner, outer, Color(0.28, 0.32, 0.36), 1.6 if i % 3 == 0 else 1.0)
-		var span := 50.0 + progress * 10.0
-		var minutes := fmod(span, 60.0)
-		var hours := 5.0 + span / 60.0
-		var min_a := deg_to_rad(-90.0 + minutes * 6.0)
-		var hr_a := deg_to_rad(-90.0 + hours * 30.0)
+		var min_a: float
+		var hr_a: float
+		if frozen:
+			min_a = deg_to_rad(90.0)
+			hr_a = deg_to_rad(90.0)
+		else:
+			var span := 50.0 + progress * 10.0
+			var minutes := fmod(span, 60.0)
+			var hours := 5.0 + span / 60.0
+			min_a = deg_to_rad(-90.0 + minutes * 6.0)
+			hr_a = deg_to_rad(-90.0 + hours * 30.0)
 		draw_line(Vector2.ZERO, Vector2.from_angle(hr_a) * radius * 0.48, Color(0.18, 0.20, 0.22), 3.2)
 		draw_line(Vector2.ZERO, Vector2.from_angle(min_a) * radius * 0.72, Color(0.78, 0.18, 0.16), 2.0)
 		draw_circle(Vector2.ZERO, 3.2, Color(0.18, 0.20, 0.22))
+
+
+class ShadowFigure extends Node2D:
+	func _draw() -> void:
+		var c := Color(0.04, 0.05, 0.07, 0.62)
+		draw_circle(Vector2(0, -30), 13, c)
+		draw_circle(Vector2(-9, -41), 5.5, c)
+		draw_circle(Vector2(9, -41), 5.5, c)
+		draw_rect(Rect2(-11, -18, 22, 38), c, true)
+		draw_rect(Rect2(-10, 18, 8, 18), c, true)
+		draw_rect(Rect2(2, 18, 8, 18), c, true)
+		draw_circle(Vector2(-4, -32), 1.6, Color(0.16, 0.18, 0.20, 0.45))
+		draw_circle(Vector2(4, -32), 1.6, Color(0.16, 0.18, 0.20, 0.45))
 
 
 class FloorPainter extends Node2D:
@@ -700,26 +872,26 @@ class FloorPainter extends Node2D:
 
 	func _draw() -> void:
 		draw_rect(Rect2(0, 0, 2560, 1520), Color(0.76, 0.82, 0.87), true)
-		_room(Rect2(40, 40, 460, 520), Color(0.90, 0.94, 0.96))
-		_room(Rect2(500, 40, 480, 520), Color(0.93, 0.94, 0.95))
+		_room(Rect2(40, 40, 460, 520), Color(0.84, 0.88, 0.90))
+		_room(Rect2(500, 40, 480, 520), Color(0.80, 0.81, 0.83))
 		_room(Rect2(980, 40, 720, 520), Color(0.97, 0.94, 0.90))
 		_room(Rect2(1700, 40, 820, 520), Color(0.93, 0.96, 0.92))
-		_room(Rect2(40, 560, 2480, 220), Color(0.88, 0.90, 0.93))
-		_room(Rect2(40, 780, 480, 700), Color(0.94, 0.94, 0.96))
+		_room(Rect2(40, 560, 2480, 220), Color(0.62, 0.64, 0.68))
+		_room(Rect2(40, 780, 480, 700), Color(0.86, 0.87, 0.90))
 		_room(Rect2(520, 780, 1200, 700), Color(0.96, 0.97, 0.98))
-		_room(Rect2(1720, 780, 800, 700), Color(0.92, 0.93, 0.96))
-		_back(Rect2(40, 40, 460, 42), Color(0.84, 0.89, 0.92))
-		_back(Rect2(500, 40, 480, 42), Color(0.86, 0.87, 0.89))
+		_room(Rect2(1720, 780, 800, 700), Color(0.78, 0.80, 0.86))
+		_back(Rect2(40, 40, 460, 42), Color(0.70, 0.76, 0.80))
+		_back(Rect2(500, 40, 480, 42), Color(0.66, 0.67, 0.70))
 		_back(Rect2(980, 40, 720, 42), Color(0.90, 0.84, 0.76))
 		_back(Rect2(1700, 40, 820, 42), Color(0.84, 0.90, 0.82))
-		_tiles(Rect2(48, 82, 444, 468), 28, Color(0.84, 0.90, 0.93), Color(0.92, 0.95, 0.97))
-		_tiles(Rect2(508, 82, 464, 468), 36, Color(0.86, 0.87, 0.89, 0.7), Color(0.94, 0.95, 0.96, 0.35))
+		_tiles(Rect2(48, 82, 444, 468), 28, Color(0.78, 0.84, 0.88), Color(0.86, 0.90, 0.93))
+		_tiles(Rect2(508, 82, 464, 468), 36, Color(0.70, 0.71, 0.73, 0.8), Color(0.78, 0.79, 0.81, 0.4))
 		_wood(Rect2(988, 82, 704, 468))
 		_tiles(Rect2(1708, 82, 804, 468), 48, Color(0.84, 0.91, 0.82, 0.4), Color(0.94, 0.97, 0.92, 0.2))
 		_corridor()
-		_tiles(Rect2(48, 788, 464, 684), 40, Color(0.88, 0.89, 0.92, 0.45), Color(0.96, 0.96, 0.97, 0.2))
+		_tiles(Rect2(48, 788, 464, 684), 40, Color(0.78, 0.80, 0.84, 0.5), Color(0.88, 0.89, 0.91, 0.22))
 		_desk_carpets()
-		_rug(Rect2(1860, 980, 520, 360), Color(0.78, 0.81, 0.90, 0.55))
+		_rug(Rect2(1860, 980, 520, 360), Color(0.42, 0.44, 0.56, 0.55))
 		_rug(Rect2(1808, 250, 540, 220), Color(0.80, 0.90, 0.78, 0.4))
 		_lights()
 
@@ -755,11 +927,16 @@ class FloorPainter extends Node2D:
 			i += 1
 
 	func _corridor() -> void:
-		draw_rect(Rect2(40, 640, 2480, 52), Color(0.94, 0.95, 0.97, 0.8), true)
+		draw_rect(Rect2(40, 640, 2480, 52), Color(0.48, 0.50, 0.54, 0.55), true)
 		var x := 80.0
 		while x < 2500.0:
-			draw_rect(Rect2(x, 656, 46, 10), Color(0.76, 0.80, 0.84, 0.5), true)
+			draw_rect(Rect2(x, 656, 46, 10), Color(0.32, 0.34, 0.38, 0.45), true)
 			x += 120.0
+		draw_rect(Rect2(40, 560, 2480, 34), Color(0.08, 0.09, 0.11, 0.28), true)
+		draw_rect(Rect2(40, 560, 240, 220), Color(0.04, 0.05, 0.07, 0.34), true)
+		draw_rect(Rect2(2260, 560, 260, 220), Color(0.03, 0.03, 0.05, 0.46), true)
+		draw_rect(Rect2(188, 86, 18, 90), Color(0.42, 0.50, 0.54, 0.28), true)
+		draw_rect(Rect2(786, 70, 40, 22), Color(0.28, 0.30, 0.32, 0.32), true)
 
 	func _desk_carpets() -> void:
 		var dark_a := Color(0.16, 0.18, 0.21)
@@ -778,10 +955,16 @@ class FloorPainter extends Node2D:
 		draw_rect(rect.grow(-12), Color(color.r, color.g, color.b, color.a * 0.4), true)
 
 	func _lights() -> void:
-		for p in [
-			Vector2(220, 96), Vector2(740, 96), Vector2(1340, 96), Vector2(2100, 96),
-			Vector2(180, 610), Vector2(740, 610), Vector2(1340, 610), Vector2(1980, 610),
-			Vector2(280, 900), Vector2(1120, 860), Vector2(2120, 860), Vector2(820, 1180), Vector2(1280, 1180)
-		]:
+		var live := [
+			Vector2(740, 96), Vector2(1340, 96), Vector2(2100, 96),
+			Vector2(180, 610), Vector2(1340, 610),
+			Vector2(280, 900), Vector2(1120, 860), Vector2(820, 1180), Vector2(1280, 1180)
+		]
+		var dead := [
+			Vector2(220, 96), Vector2(740, 610), Vector2(1980, 610), Vector2(2120, 860)
+		]
+		for p in live:
 			draw_rect(Rect2(p.x - 22, p.y - 8, 44, 8), Color(0.98, 0.98, 0.94, 0.55), true)
 			draw_rect(Rect2(p.x - 50, p.y - 6, 100, 36), Color(1, 1, 0.93, 0.07), true)
+		for p in dead:
+			draw_rect(Rect2(p.x - 22, p.y - 8, 44, 8), Color(0.18, 0.19, 0.21, 0.8), true)
