@@ -1,0 +1,29 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+config/name="clock-out"
+config/description="1 老板对 4 员工的办公室对战"
+run/main_scene="res://src/game/Game.tscn"
+config/features=PackedStringArray("4.7", "Forward Plus")
+config/icon="res://icon.svg"
+
+[autoload]
+Rules="*res://src/game/Rules.gd"
+Net="*res://src/net/Net.gd"
+Match="*res://src/game/Match.gd"
+
+[display]
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[layer_names]
+2d_physics/layer_1="walls"
+2d_physics/layer_2="actors"
+2d_physics/layer_3="zones"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.96, 0.96, 0.96, 1)

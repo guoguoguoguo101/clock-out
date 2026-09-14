@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>六点下班 · 画风与场景</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --ink: #111111;
+      --muted: #8a8a8a;
+      --line: #ececec;
+      --teal: #2EC4B6;
+      --red: #E23B3B;
+      --purple: #6B4CFF;
+      --orange: #F4A261;
+      --tie: #C41E3A;
+      --monitor: #7EB8F7;
+      --desk: #F4F4F4;
+      --corridor: #EEEEEE;
+      --tea: #F7F2EA;
+      --toilet: #EEF3F6;
+      --meeting: #F0F0F4;
+      --lobby: #F6F6F6;
+      --lounge: #F3F6F1;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 48px 32px 80px;
+    }
+    h1 {
+      font-size: 40px;
+      font-weight: 650;
+      letter-spacing: -0.04em;
+      margin: 0 0 8px;
+    }
+    .lead {
+      color: var(--muted);
+      font-size: 16px;
+      margin: 0 0 40px;
+      line-height: 1.6;
+    }
+    h2 {
+      font-size: 18px;
+      font-weight: 650;
+      margin: 48px 0 16px;
+    }
+    .rules {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .rule {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px 18px 16px;
+    }
+    .rule b { display: block; margin-bottom: 8px; }
+    .rule p { margin: 0; color: #555; font-size: 14px; line-height: 1.5; }
+    .shot {
+      width: 100%;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      display: block;
+      background: #fafafa;
+    }
+    .lineup, .bosses {
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      gap: 40px;
+      padding: 28px 0 8px;
+      border-bottom: 1px solid var(--line);
+    }
+    .who { text-align: center; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .who img { display: block; margin: 0 auto 8px; }
+    .who small { display: block; color: #aaa; }
+    .map-wrap {
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 20px;
+    }
+    .map {
+      display: grid;
+      grid-template-columns: 0.9fr 1.1fr 1fr 0.9fr;
+      grid-template-rows: 140px 64px 300px;
+      gap: 8px;
+      min-height: 520px;
+    }
+    .zone {
+      border-radius: 12px;
+      position: relative;
+      padding: 12px;
+    }
+    .zone span.label {
+      position: absolute;
+      top: 10px;
+      left: 12px;
+      font-size: 12px;
+      color: #7a7a7a;
+    }
+    .zone span.hint {
+      position: absolute;
+      right: 12px;
+      top: 10px;
+      font-size: 11px;
+      color: #9a9a9a;
+    }
+    .toilet { background: var(--toilet); }
+    .hall { background: var(--corridor); }
+    .tea { background: var(--tea); }
+    .lounge { background: var(--lounge); }
+    .corridor { background: var(--corridor); grid-column: 1 / 5; }
+    .lobby { background: var(--lobby); }
+    .desks { background: var(--desk); grid-column: 2 / 4; }
+    .meeting { background: var(--meeting); }
+    .stalls, .machines, .clocks {
+      display: flex;
+      gap: 10px;
+      height: 100%;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 8px;
+    }
+    .stall, .machine, .sofa {
+      background: #fff;
+      border: 1px solid #e4e4e4;
+    }
+    .stall { width: 36px; height: 72px; border-radius: 4px; }
+    .machine { width: 32px; height: 44px; border-radius: 6px; }
+    .sofa { width: 72px; height: 28px; border-radius: 10px; margin: 64px auto 0; }
+    .clock {
+      width: 28px;
+      height: 48px;
+      border-radius: 6px;
+      background: #fff;
+      border: 1px solid #e4e4e4;
+      position: relative;
+    }
+    .clock::before {
+      content: "";
+      position: absolute;
+      left: 5px;
+      top: 8px;
+      width: 16px;
+      height: 10px;
+      border-radius: 2px;
+      background: var(--monitor);
+    }
+    .clock::after {
+      content: "";
+      position: absolute;
+      left: 11px;
+      bottom: 8px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #7DCE82;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      grid-template-rows: 1fr 1fr;
+      width: 100%;
+      height: 100%;
+      padding: 36px 12px 10px;
+      gap: 8px;
+    }
+    .seat {
+      background: #fff;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      padding: 8px 4px 6px;
+      gap: 6px;
+    }
+    .monitor {
+      width: 28px;
+      height: 18px;
+      background: var(--monitor);
+      border-radius: 2px;
+    }
+    .dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+    }
+    .empty {
+      width: 18px;
+      height: 10px;
+      border-radius: 3px;
+      background: #f0f0f0;
+    }
+    .patrol {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: #8a8a8a;
+      font-size: 12px;
+    }
+    .table {
+      width: 72%;
+      height: 36px;
+      margin: 72px auto 0;
+      background: #fff;
+      border-radius: 4px;
+    }
+    .props {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 16px;
+    }
+    .prop {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      min-height: 140px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: #7a7a7a;
+      font-size: 13px;
+    }
+    .prop img { max-height: 88px; }
+    .kits {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    footer {
+      margin-top: 48px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    @media (max-width: 800px) {
+      .rules, .props, .kits { grid-template-columns: 1fr; }
+      main { padding: 28px 16px 56px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>六点下班</h1>
+    <p class="lead">整张游戏是 2D 扁平插画，不是 3D 粘土。办公室白棚黑白；角色可爱、可上色。默认黑猫 + 彩巾，老板也可以带颜色。</p>
+
+    <div class="rules">
+      <div class="rule">
+        <b>是 2D</b>
+        <p>色块造型，几乎没有体积光。不要 C4D、不要粘土、不要产品摄影。</p>
+      </div>
+      <div class="rule">
+        <b>场白、人可爱</b>
+        <p>白桌白椅。角色圆脑袋、有眼睛、能做表情，允许上色。</p>
+      </div>
+      <div class="rule">
+        <b>打卡有机器</b>
+        <p>门厅 2 台。工时归零才走得动，途中无敌，到达瞬间离场。</p>
+      </div>
+    </div>
+
+    <h2>员工</h2>
+    <img class="shot" src="../concept/2d-employees.png" alt="黑猫、兔子、企鹅、熊猫" />
+
+    <h2>黑猫动作</h2>
+    <img class="shot" src="../concept/2d-cat-poses.png" alt="上班 摸鱼 咖啡 开会 被抓 下班" />
+
+    <h2>老板 · 形象即技能</h2>
+    <img class="shot" src="../concept/2d-bosses.png" alt="老虎、鳄鱼、猫头鹰" />
+    <div class="kits" style="margin-top:18px">
+      <div class="rule"><b>老虎</b><p>更快，能冲刺，跟后监督把效率压到 30%。开会冷却更长。</p></div>
+      <div class="rule"><b>鳄鱼</b><p>守门口时抓包更远，抓到多僵 1.5 秒。自己走得慢。</p></div>
+      <div class="rule"><b>猫头鹰</b><p>矮隔断挡不住点名，开会更久。近身抓人慢半拍。</p></div>
+    </div>
+
+    <h2>办公室气氛</h2>
+    <img class="shot" src="../concept/2d-office.png" alt="白棚办公室" />
+
+    <h2>办公室 · 分区图</h2>
+    <div class="map-wrap">
+      <div class="map">
+        <div class="zone toilet">
+          <span class="label">厕所 · 2 隔间</span>
+          <span class="hint">约 10–12 秒</span>
+          <div class="stalls"><div class="stall"></div><div class="stall"></div></div>
+        </div>
+        <div class="zone hall">
+          <span class="label">北走廊 / 拐角</span>
+          <span class="hint">脱离视野</span>
+        </div>
+        <div class="zone tea">
+          <span class="label">茶水间 · 2 机</span>
+          <span class="hint">约 8–10 秒</span>
+          <div class="machines"><div class="machine"></div><div class="machine"></div></div>
+        </div>
+        <div class="zone lounge">
+          <span class="label">休息角</span>
+          <div class="sofa"></div>
+        </div>
+        <div class="zone corridor">
+          <div class="patrol">主走廊加宽 · 老板默认从这里巡</div>
+        </div>
+        <div class="zone lobby">
+          <span class="label">门厅 · 打卡机</span>
+          <span class="hint">5–7 秒</span>
+          <div class="clocks"><div class="clock"></div><div class="clock"></div></div>
+        </div>
+        <div class="zone desks">
+          <span class="label">工位区 · 2 × 4</span>
+          <span class="hint">4 座 + 4 空桌</span>
+          <div class="grid">
+            <div class="seat"><div class="monitor"></div><div class="dot" style="background:#6B4CFF"></div></div>
+            <div class="seat"><div class="monitor"></div><div class="empty"></div></div>
+            <div class="seat"><div class="monitor"></div><div class="empty"></div></div>
+            <div class="seat"><div class="monitor"></div><div class="dot" style="background:#E23B3B"></div></div>
+            <div class="seat"><div class="monitor"></div><div class="dot" style="background:#2EC4B6"></div></div>
+            <div class="seat"><div class="monitor"></div><div class="empty"></div></div>
+            <div class="seat"><div class="monitor"></div><div class="empty"></div></div>
+            <div class="seat"><div class="monitor"></div><div class="dot" style="background:#F4A261"></div></div>
+          </div>
+        </div>
+        <div class="zone meeting">
+          <span class="label">会议室</span>
+          <span class="hint">点名落点</span>
+          <div class="table"></div>
+        </div>
+      </div>
+    </div>
+
+    <h2>道具</h2>
+    <div class="props">
+      <div class="prop"><img src="../svg/desk.svg" alt="" />工位桌</div>
+      <div class="prop"><img src="../svg/chair.svg" alt="" />椅子</div>
+      <div class="prop"><img src="../svg/coffee_machine.svg" alt="" />咖啡机</div>
+      <div class="prop"><img src="../svg/toilet_stall.svg" alt="" />隔间</div>
+      <div class="prop"><img src="../svg/meeting_table.svg" alt="" />会议桌</div>
+      <div class="prop"><img src="../svg/punch_clock.svg" alt="" />打卡机</div>
+    </div>
+
+    <footer>概念图在 assets/concept/。玩法数字仍以游戏设计文档为准。</footer>
+  </main>
+</body>
+</html>

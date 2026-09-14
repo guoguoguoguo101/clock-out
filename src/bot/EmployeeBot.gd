@@ -1,0 +1,54 @@
+extends Node
+class_name EmployeeBot
+
+var actor: Actor
+var map: OfficeMap
+var think := 0.0
+
+
+func _init(p_actor: Actor, p_map: OfficeMap) -> void:
+	actor = p_actor
+	map = p_map
+
+
+func tick(delta: float) -> void:
+	if actor.emp_state == Rules.EmpState.LEFT or actor.emp_state == Rules.EmpState.CLOCKING:
+		actor.input_dir = Vector2.ZERO
+		return
+	if actor.emp_state == Rules.EmpState.MEETING:
+		return
+	think -= delta
+	if actor.emp_state == Rules.EmpState.COFFEE or actor.emp_state == Rules.EmpState.TOILET:
+		if actor.energy > 92.0:
+			actor.want_interact = true
+		return
+	if actor.emp_state == Rules.EmpState.WORK:
+		if actor.energy < 18.0:
+			actor.want_interact = true
+		elif actor.energy < 40.0 and think <= 0.0:
+			actor.want_slack = true
+			think = 2.0
+		return
+	if actor.emp_state == Rules.EmpState.SLACK:
+		if actor.energy > 78.0:
+			actor.want_slack = true
+		return
+	var seat: Vector2 = map.seat_for_slot(actor.slot)
+	if actor.energy < 22.0:
+		var id := map.nearest_free("coffee", actor.global_position)
+		if id == "":
+			id = map.nearest_free("toilet", actor.global_position)
+		if id != "":
+			_go(map.points[id], delta)
+			if actor.global_position.distance_to(map.points[id]) < Rules.INTERACT_RANGE:
+				actor.want_interact = true
+			return
+	_go(seat, delta)
+	if actor.global_position.distance_to(seat) < Rules.INTERACT_RANGE and actor.stand_lock <= 0.0:
+		actor.want_interact = true
+
+
+func _go(target: Vector2, _delta: float) -> void:
+	var next: Vector2 = map.path_to(actor.global_position, target)
+	var d := next - actor.global_position
+	actor.input_dir = d.normalized() if d.length() > 6.0 else Vector2.ZERO
