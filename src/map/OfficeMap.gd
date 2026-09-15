@@ -47,7 +47,7 @@ var window_panes: Array[ColorRect] = []
 var wall_clocks: Array[Node2D] = []
 var clock_labels: Array[Label] = []
 var desk_screens: Array[Sprite2D] = []
-var desk_left: Array[bool] = [false, false, false, false]
+var desk_left: Array[bool] = [false, false, false, false, false, false]
 var day_mod: CanvasModulate
 var dusk_veil: ColorRect
 var wall_cams: Array[Sprite2D] = []
@@ -1167,7 +1167,7 @@ func is_desk_area(p: Vector2) -> bool:
 
 
 func reset_shift() -> void:
-	desk_left = [false, false, false, false]
+	desk_left = [false, false, false, false, false, false]
 	for s in desk_screens:
 		if s:
 			s.modulate = Color.WHITE
