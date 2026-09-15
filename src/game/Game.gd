@@ -47,6 +47,11 @@ var home_page: Control
 var join_page: Control
 var char_page: Control
 var haunt
+var room_code_edit: LineEdit
+var room_list_box: VBoxContainer
+var enter_char_btn: Button
+var join_status: Label
+var fill_bots_btn: Button
 
 var wanted_slot := Rules.Slot.EMP_A
 var _pulse_interact := false
@@ -69,19 +74,10 @@ var _cam_punch := 0.0
 var _breath_t := 0.0
 var _help_t := 0.0
 var _last_state := -1
+var _go_input_t := 0.0
 
 
 func _ready() -> void:
-	var dedicated := false
-	for arg in OS.get_cmdline_user_args():
-		if arg == "--server" or arg == "--dedicated":
-			dedicated = true
-	if dedicated:
-		var err := Net.host_dedicated()
-		if err != OK:
-			push_error(Net.last_error)
-			get_tree().quit(1)
-			return
 	_build_world()
 	_build_ui()
 	get_viewport().size_changed.connect(_fit_camera)
@@ -96,16 +92,15 @@ func _ready() -> void:
 	Match.rescued.connect(_on_rescued)
 	Net.status_changed.connect(_refresh_lobby)
 	Net.peer_list_changed.connect(_refresh_lobby)
-	if Net.is_dedicated:
-		lobby.visible = false
-		status_label.text = "专用服 %d · 等客户端加入后点开始" % Net.listen_port
+	Net.room_ready.connect(_on_room_ready)
+	Net.room_list_changed.connect(_refresh_room_list)
+	Net.go_error.connect(_on_go_error)
 	_refresh_lobby()
-	print("[Game] ready dedicated=%s port=%d" % [Net.is_dedicated, Net.listen_port])
-	if not Net.is_dedicated:
-		for arg in OS.get_cmdline_user_args():
-			if arg == "--test":
-				_show_lobby_page.call_deferred("char")
-				break
+	print("[Game] ready")
+	for arg in OS.get_cmdline_user_args():
+		if arg == "--test":
+			_show_lobby_page.call_deferred("char")
+			break
 
 
 func _notification(what: int) -> void:
@@ -327,7 +322,7 @@ func _build_ui() -> void:
 	back.text = "返回大厅"
 	back.position = Vector2(28, 360)
 	back.size = Vector2(140, 36)
-	back.pressed.connect(func(): Match.back_to_lobby())
+	back.pressed.connect(_result_back)
 	result_panel.add_child(back)
 
 
@@ -704,7 +699,7 @@ func _build_home_page() -> void:
 
 
 func _build_join_page() -> void:
-	join_page = _panel(Rect2(360, 150, 560, 400), Color(0.07, 0.04, 0.04, 0.96))
+	join_page = _panel(Rect2(300, 70, 680, 560), Color(0.07, 0.04, 0.04, 0.96))
 	join_page.visible = false
 	lobby.add_child(join_page)
 	var t := HauntTextScript.new()
@@ -718,9 +713,9 @@ func _build_join_page() -> void:
 	join_page.add_child(t)
 	var d := HauntTextScript.new()
 	d.name = "HauntD"
-	d.text = "输入单位地址。接入后不可退出监控范围。"
+	d.text = "连上 Go 服务端后，开自己的房间或输入房间码加入。"
 	d.position = Vector2(28, 58)
-	d.size = Vector2(500, 28)
+	d.size = Vector2(620, 28)
 	d.font_size = 15
 	d.amp = 2.0
 	d.base_color = Color(0.72, 0.58, 0.5)
@@ -728,25 +723,65 @@ func _build_join_page() -> void:
 	ip_edit = LineEdit.new()
 	ip_edit.placeholder_text = "监控主机 IP"
 	ip_edit.text = "127.0.0.1"
-	ip_edit.position = Vector2(28, 100)
-	ip_edit.size = Vector2(500, 40)
+	ip_edit.position = Vector2(28, 96)
+	ip_edit.size = Vector2(360, 40)
 	_style_field(ip_edit)
 	join_page.add_child(ip_edit)
-	var join_btn := _lobby_btn("进入单位", true)
-	join_btn.position = Vector2(28, 164)
+	var join_btn := _lobby_btn("连接服务器", true)
+	join_btn.position = Vector2(400, 92)
 	join_btn.size = Vector2(240, 48)
 	join_btn.pressed.connect(_join)
 	join_page.add_child(join_btn)
-	var host_btn := _lobby_btn("开设加班", false)
-	host_btn.position = Vector2(288, 164)
-	host_btn.size = Vector2(240, 48)
-	host_btn.pressed.connect(_host)
-	join_page.add_child(host_btn)
+	join_status = Label.new()
+	join_status.position = Vector2(28, 140)
+	join_status.size = Vector2(612, 28)
+	join_status.autowrap_mode = TextServer.AUTOWRAP_OFF
+	join_status.add_theme_font_size_override("font_size", 15)
+	join_status.add_theme_color_override("font_color", Color(0.82, 0.68, 0.58))
+	join_status.text = "尚未连接服务端"
+	join_page.add_child(join_status)
+	var create_btn := _lobby_btn("开设房间", true)
+	create_btn.position = Vector2(28, 176)
+	create_btn.size = Vector2(240, 48)
+	create_btn.pressed.connect(_create_go_room)
+	join_page.add_child(create_btn)
+	room_code_edit = LineEdit.new()
+	room_code_edit.placeholder_text = "房间码"
+	room_code_edit.position = Vector2(284, 180)
+	room_code_edit.size = Vector2(160, 40)
+	_style_field(room_code_edit)
+	join_page.add_child(room_code_edit)
+	var code_btn := _lobby_btn("加入", false)
+	code_btn.position = Vector2(456, 176)
+	code_btn.size = Vector2(184, 48)
+	code_btn.pressed.connect(_join_go_room)
+	join_page.add_child(code_btn)
+	var list_lab := HauntTextScript.new()
+	list_lab.text = "公开房间"
+	list_lab.position = Vector2(28, 238)
+	list_lab.size = Vector2(200, 24)
+	list_lab.font_size = 16
+	list_lab.amp = 1.0
+	list_lab.base_color = Color(0.82, 0.7, 0.6)
+	join_page.add_child(list_lab)
+	var sc := ScrollContainer.new()
+	sc.position = Vector2(28, 268)
+	sc.size = Vector2(612, 196)
+	join_page.add_child(sc)
+	room_list_box = VBoxContainer.new()
+	room_list_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	room_list_box.add_theme_constant_override("separation", 6)
+	sc.add_child(room_list_box)
 	var back := _lobby_btn("返回", false)
-	back.position = Vector2(28, 320)
+	back.position = Vector2(28, 480)
 	back.size = Vector2(140, 44)
 	back.pressed.connect(func(): _show_lobby_page("home"))
 	join_page.add_child(back)
+	var refresh := _lobby_btn("刷新列表", false)
+	refresh.position = Vector2(188, 480)
+	refresh.size = Vector2(180, 44)
+	refresh.pressed.connect(func(): Net.list_rooms())
+	join_page.add_child(refresh)
 
 
 func _build_char_page() -> void:
@@ -764,7 +799,7 @@ func _build_char_page() -> void:
 	char_page.add_child(t)
 	var d := HauntTextScript.new()
 	d.name = "HauntD"
-	d.text = "选择员工或 Boss，再确认打卡。测试房空位由 Bot 补齐。"
+	d.text = "点卡选自己；空位可加 Bot。测试房会把剩下空位补齐。"
 	d.position = Vector2(28, 56)
 	d.size = Vector2(900, 28)
 	d.font_size = 15
@@ -781,10 +816,16 @@ func _build_char_page() -> void:
 	back.size = Vector2(180, 48)
 	back.pressed.connect(func(): _show_lobby_page("home"))
 	char_page.add_child(back)
+	fill_bots_btn = _lobby_btn("空位全补 Bot", false)
+	fill_bots_btn.position = Vector2(220, 460)
+	fill_bots_btn.size = Vector2(220, 48)
+	fill_bots_btn.pressed.connect(_fill_bots)
+	char_page.add_child(fill_bots_btn)
 	var enter := _lobby_btn("确认身份 · 打卡上班", true)
 	enter.position = Vector2(640, 460)
 	enter.pressed.connect(_confirm_start)
 	char_page.add_child(enter)
+	enter_char_btn = enter
 
 
 func _show_lobby_page(page: String) -> void:
@@ -803,6 +844,11 @@ func _click_start() -> void:
 
 
 func _confirm_start() -> void:
+	if Net.using_go:
+		Net.claim(wanted_slot, name_edit.text)
+		if Net.is_captain():
+			Net.start_match(short_check.button_pressed)
+		return
 	if Net.connected and not Net.is_server:
 		Match.claim_local(wanted_slot, name_edit.text)
 		_show_lobby_page("home")
@@ -884,9 +930,13 @@ func _style_field(e: LineEdit) -> void:
 
 
 func _lobby_tex(path: String) -> Texture2D:
-	var img := Image.load_from_file(ProjectSettings.globalize_path(path))
-	if img != null and not img.is_empty():
-		return ImageTexture.create_from_image(img)
+	if path == "":
+		return null
+	var abs_path := ProjectSettings.globalize_path(path)
+	if FileAccess.file_exists(path) or FileAccess.file_exists(abs_path):
+		var img := Image.load_from_file(abs_path)
+		if img != null and not img.is_empty():
+			return ImageTexture.create_from_image(img)
 	if ResourceLoader.exists(path):
 		var loaded: Resource = load(path)
 		if loaded is Texture2D:
@@ -1032,15 +1082,64 @@ func _host() -> void:
 	_refresh_lobby()
 
 
-func _join() -> void:
-	if Net.join(ip_edit.text) != OK:
-		status_label.text = Net.last_error
-		_show_lobby_page("home")
+func _set_join_status(text: String, ok: bool = false) -> void:
+	if join_status == null:
 		return
-	await Net.status_changed
-	Match.claim_local(wanted_slot, name_edit.text)
-	_show_lobby_page("home")
+	join_status.text = text
+	join_status.add_theme_color_override("font_color", Color(0.62, 0.92, 0.72) if ok else Color(0.92, 0.62, 0.52))
+
+
+func _join() -> void:
+	if Net.connect_go(ip_edit.text) != OK:
+		_set_join_status(Net.last_error)
+		return
+	_set_join_status(Net.last_error)
+	_refresh_room_list()
+
+
+func _create_go_room() -> void:
+	if not Net.using_go or not Net.connected:
+		_set_join_status("先连接服务器")
+		return
+	Net.create_room()
+
+
+func _join_go_room() -> void:
+	if not Net.using_go or not Net.connected:
+		_set_join_status("先连接服务器")
+		return
+	Net.join_room(room_code_edit.text)
+
+
+func _on_room_ready() -> void:
+	_show_lobby_page("char")
 	_refresh_lobby()
+
+
+func _on_go_error() -> void:
+	_set_join_status(Net.last_error)
+
+
+func _refresh_room_list() -> void:
+	if room_list_box == null:
+		return
+	for c in room_list_box.get_children():
+		c.queue_free()
+	for item in Net.rooms:
+		var code := str(item.get("code", ""))
+		var phase := str(item.get("phase", "lobby"))
+		var n := int(item.get("players", 0))
+		var label := "%s  ·  %d人  ·  %s" % [code, n, "进行中" if phase != "lobby" else "大厅"]
+		var b := Button.new()
+		b.text = label
+		b.custom_minimum_size = Vector2(580, 36)
+		b.disabled = phase != "lobby"
+		var captured := code
+		b.pressed.connect(func():
+			room_code_edit.text = captured
+			Net.join_room(captured)
+		)
+		room_list_box.add_child(b)
 
 
 func _enter_test_room() -> void:
@@ -1056,13 +1155,43 @@ func _enter_test_room() -> void:
 			status_label.text = Net.last_error
 			return
 	Match.claim_local(wanted_slot, name_edit.text)
+	Match.fill_empty_bots_local()
 	Match.start_local(true, true)
 
 
 func _pick_slot(slot: int) -> void:
 	wanted_slot = slot
-	if Net.is_server or Net.connected:
+	if Net.using_go:
+		Net.claim(slot, name_edit.text)
+	elif Net.is_server or Net.connected:
 		Match.claim_local(slot, name_edit.text)
+	_refresh_lobby()
+
+
+func _can_assign_bot() -> bool:
+	if Net.using_go:
+		return Net.connected and Net.room_code != ""
+	return true
+
+
+func _set_slot_bot(slot: int, on: bool) -> void:
+	if Net.using_go:
+		if not _can_assign_bot():
+			return
+		Net.set_bot(slot, on)
+		return
+	Match.set_bot_local(slot, on)
+	_refresh_lobby()
+
+
+func _fill_bots() -> void:
+	if Net.using_go:
+		if not _can_assign_bot():
+			_set_join_status("先进入房间")
+			return
+		Net.fill_bots()
+		return
+	Match.fill_empty_bots_local()
 	_refresh_lobby()
 
 
@@ -1075,12 +1204,41 @@ func _refresh_lobby() -> void:
 		exit_btn.visible = false
 		if returning:
 			_show_lobby_page("home")
-	if Net.is_server:
+	if Net.using_go:
+		if Net.room_code != "":
+			var role := "主管" if Net.is_captain() else "到岗"
+			var room_txt := "房间 %s · 你是%s\n选身份后，主管点打卡开局" % [Net.room_code, role]
+			status_label.text = room_txt
+			_set_join_status("已进房 %s（%s）" % [Net.room_code, role], true)
+		elif Net.connected:
+			status_label.text = "已接入。开设房间或输入房间码。"
+			_set_join_status("已连接  #%d。可以开设房间或输入房间码。" % Net.go_peer_id, true)
+		else:
+			var pending := Net.last_error if Net.last_error != "" else "正在连接服务端…"
+			status_label.text = pending
+			_set_join_status(pending)
+	elif Net.is_server:
 		status_label.text = "单位已开  127.0.0.1:%d\n核验身份后，点「打卡上班」" % Net.listen_port
 	elif Net.connected:
 		status_label.text = "已接入监控。核验身份，等主管开局。"
 	else:
 		status_label.text = "打卡上班：先选员工或 Boss，再进入测试房。空位由 Bot 补齐。"
+		if Net.last_error != "":
+			_set_join_status(Net.last_error)
+		else:
+			_set_join_status("尚未连接服务端")
+	if enter_char_btn:
+		var cap = enter_char_btn.get_node_or_null("HauntCap")
+		if Net.using_go and Net.is_captain():
+			enter_char_btn.set_meta("haunt_base", "确认身份 · 打卡开局")
+			if cap:
+				cap.text = "确认身份 · 打卡开局"
+		elif Net.using_go:
+			enter_char_btn.set_meta("haunt_base", "确认占位 · 等主管开局")
+			if cap:
+				cap.text = "确认占位 · 等主管开局"
+	if fill_bots_btn:
+		fill_bots_btn.visible = _can_assign_bot()
 	if slot_box == null:
 		return
 	for c in slot_box.get_children():
@@ -1124,14 +1282,22 @@ func _refresh_lobby() -> void:
 		card.add_child(nm)
 		var st := HauntTextScript.new()
 		st.text = who if s != Rules.Slot.BOSS else (who + " · 请勿对视")
-		st.position = Vector2(4, 210)
-		st.size = Vector2(134, 52)
+		st.position = Vector2(4, 208)
+		st.size = Vector2(134, 28)
 		st.font_size = 11
 		st.amp = 2.0
 		st.wrap = true
 		st.align = HORIZONTAL_ALIGNMENT_CENTER
 		st.base_color = Color(0.78, 0.32, 0.26) if s == Rules.Slot.BOSS else Color(0.7, 0.58, 0.52)
 		card.add_child(st)
+		if _can_assign_bot() and pid <= 0:
+			var bot_on := pid == 0
+			var bot_btn := Button.new()
+			bot_btn.text = "移出 Bot" if bot_on else "加 Bot"
+			bot_btn.position = Vector2(8, 240)
+			bot_btn.size = Vector2(126, 32)
+			bot_btn.pressed.connect(func(): _set_slot_bot(picked, not bot_on))
+			card.add_child(bot_btn)
 		slot_box.add_child(card)
 
 
@@ -1358,6 +1524,21 @@ func _local_actor() -> Actor:
 
 
 func _leave_room() -> void:
+	if Net.using_go:
+		Net.leave_room()
+		Match.go_clear_to_lobby()
+		_show_lobby_page("join")
+		return
+	Match.back_to_lobby()
+
+
+func _result_back() -> void:
+	if Net.using_go:
+		if Net.is_captain():
+			Net.reset_match()
+		else:
+			_leave_room()
+		return
 	Match.back_to_lobby()
 
 
@@ -1376,7 +1557,13 @@ func _process(delta: float) -> void:
 		dir.y -= 1
 	if Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN):
 		dir.y += 1
-	if multiplayer.is_server():
+	if Net.using_go:
+		_go_input_t += delta
+		var pulsed := _pulse_interact or _pulse_slack or _pulse_meeting or _pulse_kpi or _pulse_dash
+		if pulsed or _go_input_t >= 0.05:
+			_go_input_t = 0.0
+			Net.send_input(dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash)
+	elif Net.is_enet_server():
 		actor.apply_input(dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash)
 	else:
 		actor.recv_input.rpc_id(1, dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash)

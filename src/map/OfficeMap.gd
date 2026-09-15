@@ -95,7 +95,7 @@ func _process(delta: float) -> void:
 	apply_daylight(Match.day_progress())
 	_sync_left_desks()
 	_tick_horror(delta)
-	if multiplayer.is_server():
+	if Net.is_enet_server():
 		for d in doors:
 			var door = d
 			var was: bool = door.opening

@@ -99,6 +99,10 @@ func setup(p_slot: int, p_peer: int, p_name: String) -> void:
 
 
 func is_local() -> bool:
+	if Net.using_go:
+		return peer_id != 0 and peer_id == Net.go_peer_id
+	if not Net.has_peer():
+		return false
 	return peer_id != 0 and peer_id == multiplayer.get_unique_id()
 
 
@@ -538,13 +542,22 @@ func _update_threat_modulate() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if multiplayer.is_server() and Match.playing:
+	if Net.using_go:
+		global_position = global_position.lerp(_remote_pos, 1.0 - exp(-12.0 * delta))
+		if carried_by >= 0:
+			var carrier := Match.actors.get(carried_by) as Actor
+			if carrier != null:
+				global_position = carrier.global_position
+		_update_visual(delta)
+		queue_redraw()
+		return
+	if Net.is_enet_server() and Match.playing:
 		_server_tick(delta)
 		_sync_acc += delta
 		if _sync_acc >= 1.0 / SNAP_HZ:
 			_sync_acc = 0.0
 			_broadcast_state()
-	elif not multiplayer.is_server():
+	elif not Net.is_enet_server():
 		global_position = global_position.lerp(_remote_pos, 1.0 - exp(-12.0 * delta))
 	if carried_by >= 0:
 		var carrier := Match.actors.get(carried_by) as Actor

@@ -2,6 +2,9 @@ extends Node
 
 signal status_changed
 signal peer_list_changed
+signal room_list_changed
+signal room_ready
+signal go_error
 
 const PORT := 27111
 const MAX_CLIENTS := 8
@@ -12,6 +15,16 @@ var connected := false
 var last_error := ""
 var listen_port := PORT
 
+var using_go := false
+var go_peer_id := 0
+var room_code := ""
+var captain_id := 0
+var rooms: Array = []
+
+var _ws: WebSocketPeer
+var _ws_host := "127.0.0.1"
+var _opened := false
+
 
 func _ready() -> void:
 	multiplayer.peer_connected.connect(_on_peer_connected)
@@ -19,6 +32,31 @@ func _ready() -> void:
 	multiplayer.connected_to_server.connect(_on_connected)
 	multiplayer.connection_failed.connect(_on_connect_failed)
 	multiplayer.server_disconnected.connect(_on_server_disconnected)
+	set_process(true)
+
+
+func _process(_delta: float) -> void:
+	if _ws == null:
+		return
+	_ws.poll()
+	var st := _ws.get_ready_state()
+	if st == WebSocketPeer.STATE_OPEN:
+		if not _opened:
+			_opened = true
+			using_go = true
+			_send({"type": "hello"})
+		while _ws.get_available_packet_count() > 0:
+			_on_packet(_ws.get_packet())
+	elif st == WebSocketPeer.STATE_CLOSING:
+		pass
+	elif st == WebSocketPeer.STATE_CLOSED:
+		if using_go or connected:
+			if not _opened:
+				last_error = "连不上服务器，确认已启动 server.bat"
+			else:
+				last_error = "与服务器断开"
+			_reset_go()
+			status_changed.emit()
 
 
 func host_listen() -> Error:
@@ -55,25 +93,101 @@ func _start_server(dedicated: bool) -> Error:
 
 
 func join(ip: String) -> Error:
-	var peer := ENetMultiplayerPeer.new()
-	var err := peer.create_client(ip.strip_edges(), PORT)
+	return connect_go(ip)
+
+
+func connect_go(ip: String) -> Error:
+	leave()
+	_ws_host = ip.strip_edges()
+	if _ws_host == "":
+		_ws_host = "127.0.0.1"
+	_ws = WebSocketPeer.new()
+	var url := "ws://%s:%d/" % [_ws_host, PORT]
+	var err := _ws.connect_to_url(url)
 	if err != OK:
 		last_error = "连接失败"
+		_ws = null
 		return err
-	multiplayer.multiplayer_peer = peer
-	is_server = false
-	is_dedicated = false
+	using_go = true
 	connected = false
-	last_error = "正在连接 %s:%d …" % [ip, PORT]
-	print("[Net] joining %s:%d" % [ip, PORT])
+	_opened = false
+	last_error = "正在连接 %s …" % url
+	print("[Net] joining go %s" % url)
 	status_changed.emit()
 	return OK
 
 
+func create_room() -> void:
+	_send({"type": "create_room"})
+
+
+func join_room(code: String) -> void:
+	_send({"type": "join_room", "code": code.strip_edges().to_upper()})
+
+
+func list_rooms() -> void:
+	_send({"type": "list_rooms"})
+
+
+func leave_room() -> void:
+	_send({"type": "leave_room"})
+	room_code = ""
+	captain_id = 0
+
+
+func claim(slot: int, player_name: String) -> void:
+	_send({"type": "claim", "slot": slot, "name": player_name})
+
+
+func set_bot(slot: int, on: bool) -> void:
+	_send({"type": "bot_slot", "slot": slot, "on": on})
+
+
+func fill_bots() -> void:
+	_send({"type": "fill_bots"})
+
+
+func start_match(p_short: bool) -> void:
+	_send({"type": "start", "short": p_short})
+
+
+func reset_match() -> void:
+	_send({"type": "reset"})
+
+
+func send_input(dx: float, dy: float, interact: bool, slack: bool, meeting: bool, kpi: bool, dash: bool) -> void:
+	_send({
+		"type": "input",
+		"dx": dx,
+		"dy": dy,
+		"interact": interact,
+		"slack": slack,
+		"meeting": meeting,
+		"kpi": kpi,
+		"dash": dash,
+	})
+
+
+func is_captain() -> bool:
+	return using_go and go_peer_id != 0 and go_peer_id == captain_id
+
+
+func has_peer() -> bool:
+	return multiplayer.multiplayer_peer != null
+
+
+func is_enet_server() -> bool:
+	return not using_go and has_peer() and multiplayer.is_server()
+
+
 func leave() -> void:
+	if _ws != null:
+		_ws.close()
+		_ws = null
+	_reset_go()
 	if multiplayer.multiplayer_peer != null:
 		multiplayer.multiplayer_peer.close()
-	multiplayer.multiplayer_peer = null
+	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	is_server = false
 	is_dedicated = false
 	connected = false
@@ -81,8 +195,23 @@ func leave() -> void:
 	peer_list_changed.emit()
 
 
+func _reset_go() -> void:
+	_ws = null
+	_opened = false
+	using_go = false
+	go_peer_id = 0
+	room_code = ""
+	captain_id = 0
+	connected = false
+	rooms = []
+
+
 func peer_ids() -> Array[int]:
 	var ids: Array[int] = []
+	if using_go:
+		if go_peer_id != 0:
+			ids.append(go_peer_id)
+		return ids
 	if multiplayer.multiplayer_peer == null:
 		return ids
 	ids.append(multiplayer.get_unique_id())
@@ -90,6 +219,74 @@ func peer_ids() -> Array[int]:
 		ids.append(int(id))
 	ids.sort()
 	return ids
+
+
+func _send(data: Dictionary) -> void:
+	if _ws == null or _ws.get_ready_state() != WebSocketPeer.STATE_OPEN:
+		return
+	var body := JSON.stringify(data).to_utf8_buffer()
+	var n := body.size()
+	var out := PackedByteArray()
+	out.resize(4 + n)
+	out[0] = (n >> 24) & 255
+	out[1] = (n >> 16) & 255
+	out[2] = (n >> 8) & 255
+	out[3] = n & 255
+	for i in n:
+		out[4 + i] = body[i]
+	_ws.put_packet(out)
+
+
+func _on_packet(raw: PackedByteArray) -> void:
+	if raw.size() < 4:
+		return
+	var buf := StreamPeerBuffer.new()
+	buf.big_endian = true
+	buf.data_array = raw
+	var n := int(buf.get_u32())
+	if n <= 0 or n > raw.size() - 4:
+		return
+	var text := raw.slice(4, 4 + n).get_string_from_utf8()
+	var parsed: Variant = JSON.parse_string(text)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return
+	_handle(parsed)
+
+
+func _handle(msg: Dictionary) -> void:
+	var typ := str(msg.get("type", ""))
+	match typ:
+		"welcome":
+			go_peer_id = int(msg.get("peer", 0))
+			connected = true
+			last_error = ""
+			print("[Net] go welcome peer=%d" % go_peer_id)
+			status_changed.emit()
+		"room_ready":
+			room_code = str(msg.get("code", ""))
+			captain_id = int(msg.get("captain", 0))
+			last_error = ""
+			room_ready.emit()
+			status_changed.emit()
+		"room_list":
+			rooms = msg.get("rooms", [])
+			room_list_changed.emit()
+		"lobby":
+			var lobby: Dictionary = msg.get("lobby", {})
+			captain_id = int(msg.get("captain", lobby.get("captain", captain_id)))
+			room_code = str(msg.get("code", lobby.get("code", room_code)))
+			Match.apply_go_lobby(lobby, captain_id)
+			status_changed.emit()
+		"snapshot":
+			var snap: Dictionary = msg.get("snapshot", {})
+			Match.apply_go_snapshot(snap)
+		"event":
+			var ev: Dictionary = msg.get("event", {})
+			Match.apply_go_event(ev)
+		"error":
+			last_error = str(msg.get("reason", "错误"))
+			go_error.emit()
+			status_changed.emit()
 
 
 func _on_peer_connected(id: int) -> void:

@@ -57,7 +57,7 @@ func _process(delta: float) -> void:
 	var actor := get_parent() as Actor
 	age += delta
 	burst = maxf(0.0, burst - delta)
-	if not multiplayer.is_server():
+	if not Net.is_enet_server():
 		actor.carry_left = maxf(0.0, actor.carry_left - delta)
 		actor.carry_windup = maxf(0.0, actor.carry_windup - delta)
 		actor.carry_recovery = maxf(0.0, actor.carry_recovery - delta)

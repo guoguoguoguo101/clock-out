@@ -42,7 +42,9 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	if not multiplayer.is_server():
+	if Net.using_go:
+		return
+	if not Net.is_enet_server():
 		return
 	if phase == "countdown":
 		countdown -= delta
@@ -75,7 +77,7 @@ func day_progress() -> float:
 
 
 func my_slot() -> int:
-	var id := multiplayer.get_unique_id()
+	var id := Net.go_peer_id if Net.using_go else (multiplayer.get_unique_id() if Net.has_peer() else 0)
 	for s in slots.keys():
 		if int(slots[s]) == id:
 			return int(s)
@@ -107,10 +109,42 @@ func _claim(pid: int, slot: int, player_name: String) -> void:
 	for s in slots.keys():
 		if int(slots[s]) == pid:
 			slots[s] = -1
-	if int(slots[slot]) != -1 and int(slots[slot]) != pid:
+	if int(slots[slot]) != -1 and int(slots[slot]) != pid and int(slots[slot]) != 0:
 		return
 	slots[slot] = pid
 	names[pid] = player_name
+	_broadcast_lobby()
+
+
+func set_bot_local(slot: int, on: bool) -> void:
+	if not Net.is_enet_server():
+		return
+	_set_bot(slot, on)
+
+
+func _set_bot(slot: int, on: bool) -> void:
+	if phase != "lobby" or not slots.has(slot):
+		return
+	var cur := int(slots[slot])
+	if on:
+		if cur > 0:
+			return
+		slots[slot] = 0
+		names[0] = "Bot"
+	else:
+		if cur != 0:
+			return
+		slots[slot] = -1
+	_broadcast_lobby()
+
+
+func fill_empty_bots_local() -> void:
+	if not Net.is_enet_server() or phase != "lobby":
+		return
+	for s in slots.keys():
+		if int(slots[s]) == -1:
+			slots[s] = 0
+	names[0] = "Bot"
 	_broadcast_lobby()
 
 
@@ -136,10 +170,6 @@ func _start(p_short: bool, instant: bool = false) -> void:
 	elapsed = 0.0
 	clock_log.clear()
 	bots.clear()
-	for s in slots.keys():
-		if int(slots[s]) == -1:
-			slots[s] = 0
-			names[0] = "Bot"
 	_spawn_all()
 	_broadcast_lobby()
 	begin_match.rpc(p_short, instant)
@@ -174,6 +204,8 @@ func _spawn_all() -> void:
 		office.occupiers[k] = -1
 	for s in slots.keys():
 		var pid := int(slots[s])
+		if pid < 0:
+			continue
 		var actor: Actor = _actor_scene.instantiate()
 		var pname := _name_for(pid, int(s))
 		actor.setup(int(s), pid, pname)
@@ -565,12 +597,14 @@ func on_clock_out(slot: int) -> void:
 
 
 func _all_punched() -> bool:
+	var any := false
 	for s in Rules.EMPLOYEE_SLOTS:
 		if not actors.has(s):
-			return false
+			continue
+		any = true
 		if (actors[s] as Actor).emp_state != Rules.EmpState.LEFT:
 			return false
-	return true
+	return any
 
 
 func _finish() -> void:
@@ -583,6 +617,8 @@ func _finish() -> void:
 	var punched := 0
 	var people: Array = []
 	for s in Rules.EMPLOYEE_SLOTS:
+		if not actors.has(s):
+			continue
 		var actor: Actor = actors[s]
 		var win := actor.emp_state == Rules.EmpState.LEFT
 		if win:
@@ -637,7 +673,7 @@ func sync_lobby(p_slots: Dictionary, p_names: Dictionary, p_short: bool, p_phase
 
 
 func _on_peers() -> void:
-	if not multiplayer.is_server():
+	if Net.using_go or not Net.is_enet_server():
 		return
 	var alive: Dictionary = {}
 	alive[1] = true
@@ -698,3 +734,150 @@ func reset_lobby() -> void:
 	actors.clear()
 	bots.clear()
 	lobby_changed.emit()
+
+
+func apply_go_lobby(data: Dictionary, captain: int) -> void:
+	var next_phase := str(data.get("phase", phase))
+	slots = {
+		Rules.Slot.BOSS: -1,
+		Rules.Slot.EMP_A: -1,
+		Rules.Slot.EMP_B: -1,
+		Rules.Slot.EMP_C: -1,
+		Rules.Slot.EMP_D: -1,
+		Rules.Slot.EMP_E: -1,
+	}
+	var raw_slots: Dictionary = data.get("slots", {})
+	for k in raw_slots.keys():
+		slots[int(k)] = int(raw_slots[k])
+	names = {}
+	var raw_names: Dictionary = data.get("names", {})
+	for k in raw_names.keys():
+		names[int(k)] = str(raw_names[k])
+	short_match = bool(data.get("short", short_match))
+	if next_phase == "lobby" and phase != "lobby":
+		_clear_actors()
+	var prev := phase
+	phase = next_phase
+	playing = phase == "playing" or phase == "countdown"
+	if prev == "lobby" and phase != "lobby" and phase != "result":
+		match_started.emit()
+	lobby_changed.emit()
+
+
+func apply_go_snapshot(snap: Dictionary) -> void:
+	var prev := phase
+	phase = str(snap.get("phase", phase))
+	elapsed = float(snap.get("elapsed", elapsed))
+	time_left = float(snap.get("left", time_left))
+	countdown = float(snap.get("cd", countdown))
+	playing = phase == "playing" or phase == "countdown"
+	if office:
+		var occ: Dictionary = snap.get("occupiers", {})
+		for k in occ.keys():
+			office.occupiers[str(k)] = int(occ[k])
+		var doors: Array = snap.get("doors", [])
+		for d in doors:
+			office._sync_door(str(d.get("id", "")), bool(d.get("closed", false)), bool(d.get("opening", false)), float(d.get("open_left", 0.0)))
+	var list: Array = snap.get("actors", [])
+	for item in list:
+		_ingest_go_actor(item)
+	if prev == "lobby" and phase != "lobby" and phase != "result":
+		match_started.emit()
+	if phase == "result" and prev != "result":
+		playing = false
+		match_ended.emit()
+	hud_dirty.emit()
+
+
+func apply_go_event(ev: Dictionary) -> void:
+	var kind := str(ev.get("kind", ""))
+	match kind:
+		"talk":
+			talked.emit(int(ev.get("slot", -1)))
+		"catch":
+			caught.emit(int(ev.get("slot", -1)), bool(ev.get("repeat", false)), float(ev.get("add_hours", 0.0)))
+		"rescue":
+			rescued.emit(int(ev.get("slot", -1)), int(ev.get("by_slot", -1)))
+		"kpi":
+			kpi_popup.emit()
+		"result":
+			result = ev.get("result", {})
+			playing = false
+			phase = "result"
+			match_ended.emit()
+		"bike":
+			bike_event(int(ev.get("slot", -1)), bool(ev.get("on", false)))
+		"carry":
+			carry_event(
+				int(ev.get("slot", -1)),
+				int(ev.get("passenger", -1)),
+				bool(ev.get("on", false)),
+				Vector2(float(ev.get("x", 0.0)), float(ev.get("y", 0.0))),
+				bool(ev.get("interrupted", false)),
+				float(ev.get("facing", 1.0))
+			)
+
+
+func _ingest_go_actor(item: Dictionary) -> void:
+	var slot := int(item.get("slot", -1))
+	if slot < 0 or office == null:
+		return
+	var actor: Actor = actors.get(slot) as Actor
+	if actor == null or not is_instance_valid(actor):
+		if office.has_node("actor_%d" % slot):
+			office.get_node("actor_%d" % slot).queue_free()
+		actor = _actor_scene.instantiate()
+		actor.setup(slot, int(item.get("peer", 0)), str(item.get("name", "")))
+		office.add_child(actor, true)
+		actors[slot] = actor
+		actor.global_position = Vector2(float(item.get("x", 0.0)), float(item.get("y", 0.0)))
+		actor._remote_pos = actor.global_position
+	actor.peer_id = int(item.get("peer", actor.peer_id))
+	actor.display_name = str(item.get("name", actor.display_name))
+	actor.apply_snapshot(
+		float(item.get("x", 0.0)),
+		float(item.get("y", 0.0)),
+		int(item.get("state", 0)),
+		float(item.get("hours", 0.0)),
+		float(item.get("energy", 0.0)),
+		bool(item.get("visible", true)),
+		float(item.get("mcd", 0.0)),
+		float(item.get("kcd", 0.0)),
+		float(item.get("dcd", 0.0)),
+		float(item.get("talk", 0.0)),
+		float(item.get("rescue", 0.0)),
+		float(item.get("bike", 0.0))
+	)
+	actor.occupy_id = str(item.get("occupy", ""))
+	actor.carrying_slot = int(item.get("carrying", -1))
+	actor.carried_by = int(item.get("carried_by", -1))
+	actor.stand_lock = float(item.get("stand_lock", 0.0))
+	var fx := float(item.get("facing_x", 0.0))
+	if abs(fx) > 0.01:
+		actor._facing = Vector2(fx, actor._facing.y)
+	if actor.name_label:
+		actor.name_label.text = actor.display_name
+
+
+func go_clear_to_lobby() -> void:
+	playing = false
+	phase = "lobby"
+	countdown = 0.0
+	clock_log.clear()
+	result = {}
+	if office != null:
+		for k in office.occupiers.keys():
+			office.occupiers[k] = -1
+	for s in slots.keys():
+		slots[s] = -1
+	names.clear()
+	_clear_actors()
+	lobby_changed.emit()
+
+
+func _clear_actors() -> void:
+	for a in actors.values():
+		if is_instance_valid(a):
+			(a as Node).queue_free()
+	actors.clear()
+	bots.clear()

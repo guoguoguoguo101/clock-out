@@ -3,6 +3,10 @@
 *.translation
 export_credentials.cfg
 
+# Go
+server/clockout-server
+server/clockout-server.exe
+
 # Python
 __pycache__/
 *.pyc
