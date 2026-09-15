@@ -45,7 +45,7 @@ var window_panes: Array[ColorRect] = []
 var wall_clocks: Array[Node2D] = []
 var clock_labels: Array[Label] = []
 var desk_screens: Array[Sprite2D] = []
-var desk_left: Array[bool] = [false, false, false, false]
+var desk_left: Array[bool] = [false, false, false, false, false]
 var day_mod: CanvasModulate
 var dusk_veil: ColorRect
 var wall_cams: Array[Sprite2D] = []
@@ -214,11 +214,13 @@ func _build_furniture() -> void:
 		Vector2(790, 1048),
 		Vector2(1010, 1048),
 		Vector2(1130, 1048),
+		Vector2(1240, 1048),
 	]
 	var desk_y := 970.0
 	_shared_table(Vector2(730, desk_y))
 	_shared_table(Vector2(1070, desk_y))
-	for i in 4:
+	_compact_table(Vector2(1240, desk_y))
+	for i in seats.size():
 		var seat: Vector2 = seats[i]
 		var desk := Vector2(seat.x, desk_y)
 		points["desk_%d" % (i + 1)] = desk
@@ -244,6 +246,14 @@ func _shared_table(center: Vector2) -> void:
 	_blocker(center + Vector2(0, 4), Vector2(236, 36))
 
 
+func _compact_table(center: Vector2) -> void:
+	_rect(Rect2(center.x - 58, center.y - 22, 116, 48), Color(0.42, 0.42, 0.44), -5)
+	_rect(Rect2(center.x - 58, center.y - 22, 116, 6), Color(0.28, 0.28, 0.30), -4)
+	_rect(Rect2(center.x - 54, center.y + 10, 108, 14), Color(0.04, 0.04, 0.05, 0.35), -6)
+	_prop("res://assets/game/props/horror/desk.png", center + Vector2(0, 8), 118, -4)
+	_blocker(center + Vector2(0, 4), Vector2(108, 36))
+
+
 func _shared_place(idx: int, seat: Vector2, desk: Vector2) -> void:
 	var flip := idx % 2 == 1
 	desk_screens.append(_prop("res://assets/game/props/screen.png", desk + Vector2(0, -36), 80, -3))
@@ -259,8 +269,8 @@ func _dress_desk_shared() -> void:
 	_solid_prop("res://assets/game/props/horror/plant.png", Vector2(560, 820), 56, -3, Vector2(34, 24))
 	_solid_prop("res://assets/game/props/horror/plant.png", Vector2(1248, 820), 54, -3, Vector2(34, 24))
 	_solid_prop("res://assets/game/props/horror/plant.png", Vector2(560, 1200), 52, -3, Vector2(32, 22))
-	_solid_prop("res://assets/game/props/horror/cabinet.png", Vector2(1264, 900), 64, -4, Vector2(46, 40))
-	_prop("res://assets/game/props/file.png", Vector2(1264, 866), 22, -3)
+	_solid_prop("res://assets/game/props/horror/cabinet.png", Vector2(1288, 1188), 64, -4, Vector2(46, 40))
+	_prop("res://assets/game/props/file.png", Vector2(1288, 1154), 22, -3)
 	_frame(Rect2(560, 786, 70, 48), Color(0.10, 0.11, 0.13))
 	_notice(Vector2(640, 788), "共享工位", 92)
 
@@ -979,7 +989,7 @@ func apply_daylight(progress: float) -> void:
 
 
 func _sync_left_desks() -> void:
-	for s in [Rules.Slot.EMP_A, Rules.Slot.EMP_B, Rules.Slot.EMP_C, Rules.Slot.EMP_D]:
+	for s in Rules.EMPLOYEE_SLOTS:
 		if not Match.actors.has(s):
 			continue
 		var e: Actor = Match.actors[s]
@@ -1014,7 +1024,7 @@ func is_desk_area(p: Vector2) -> bool:
 
 
 func reset_shift() -> void:
-	desk_left = [false, false, false, false]
+	desk_left = [false, false, false, false, false]
 	for s in desk_screens:
 		if s:
 			s.modulate = Color.WHITE
@@ -1053,7 +1063,7 @@ func _build_zones() -> void:
 	_zone("punch_0", points["punch_0"], 56)
 	_zone("punch_1", points["punch_1"], 56)
 	_zone("meeting", points["meeting"], 110)
-	for i in 4:
+	for i in 5:
 		_zone("seat_%d" % (i + 1), points["seat_%d" % (i + 1)], 52)
 		_zone("sup_%d" % (i + 1), points["sup_%d" % (i + 1)], 60)
 

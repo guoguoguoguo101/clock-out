@@ -22,6 +22,7 @@ var slots: Dictionary = {
 	Rules.Slot.EMP_B: -1,
 	Rules.Slot.EMP_C: -1,
 	Rules.Slot.EMP_D: -1,
+	Rules.Slot.EMP_E: -1,
 }
 var names: Dictionary = {}
 var clock_log: Dictionary = {}
@@ -211,14 +212,14 @@ func spawn_actor(slot: int, pid: int, pname: String, x: float, y: float, st: int
 
 
 @rpc("authority", "unreliable")
-func sync_actor(slot: int, x: float, y: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, _occ: String, talk: float = 0.0, rescue: float = 0.0) -> void:
+func sync_actor(slot: int, x: float, y: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, _occ: String, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0) -> void:
 	if multiplayer.is_server():
 		return
 	if not actors.has(slot):
 		return
 	var actor := actors[slot] as Actor
 	var state := Rules.EmpState.CARRIED if actor.carried_by >= 0 else (Rules.EmpState.WALK if st == Rules.EmpState.CARRIED else st)
-	actor.apply_snapshot(x, y, state, h, e, vis, mcd, kcd, dcd, talk, rescue)
+	actor.apply_snapshot(x, y, state, h, e, vis, mcd, kcd, dcd, talk, rescue, bike)
 
 
 @rpc("authority", "unreliable")
@@ -337,6 +338,38 @@ func nearest_carry_target(carrier: Actor) -> Actor:
 	return best
 
 
+func try_bike(rider: Actor) -> bool:
+	if not multiplayer.is_server() or not playing or rider.is_bot():
+		return false
+	if rider.skin != Rules.CharSkin.KANGAROO:
+		return false
+	if rider.emp_state != Rules.EmpState.WALK or rider.stand_lock > 0.0:
+		return false
+	if rider.bike_left > 0.0 or rider.carrying_slot >= 0 or rider.carried_by >= 0:
+		return false
+	rider.bike_left = Rules.BIKE_DURATION
+	bike_event.rpc(rider.slot, true)
+	return true
+
+
+func clear_bike(rider: Actor) -> void:
+	if not multiplayer.is_server():
+		return
+	rider.bike_left = 0.0
+	bike_event.rpc(rider.slot, false)
+
+
+@rpc("authority", "call_local", "reliable")
+func bike_event(slot: int, on: bool) -> void:
+	var rider := actors.get(slot) as Actor
+	if rider == null:
+		return
+	rider.bike_left = Rules.BIKE_DURATION if on else 0.0
+	rider._update_bike_visual(on)
+	if on:
+		rider.say("电瓶车，走起！", 1.3)
+
+
 func try_carry(carrier: Actor) -> bool:
 	if not multiplayer.is_server() or not playing or carrier.is_bot():
 		return false
@@ -348,6 +381,8 @@ func try_carry(carrier: Actor) -> bool:
 	passenger.carry_saved_talk = passenger.talk_progress if passenger.emp_state == Rules.EmpState.TALK else -1.0
 	passenger._stand_up()
 	passenger.clear_rescue()
+	if passenger.bike_left > 0.0:
+		clear_bike(passenger)
 	carrier.clear_rescue()
 	carrier._facing.x = 1.0 if passenger.global_position.x >= carrier.global_position.x else -1.0
 	carry_event.rpc(carrier.slot, passenger.slot, true, passenger.global_position, false, carrier._facing.x)
@@ -398,7 +433,7 @@ func carry_event(carrier_slot: int, passenger_slot: int, pickup: bool, pos: Vect
 		passenger.velocity = Vector2.ZERO
 		if carrier.carry_visual:
 			carrier.carry_visual.pickup(passenger, pos)
-		carrier.say("跨部门转运，走你！", 1.5)
+		carrier.say("接活水，走你！", 1.5)
 	else:
 		carrier.carrying_slot = -1
 		carrier.carry_left = 0.0
@@ -530,7 +565,7 @@ func on_clock_out(slot: int) -> void:
 
 
 func _all_punched() -> bool:
-	for s in [Rules.Slot.EMP_A, Rules.Slot.EMP_B, Rules.Slot.EMP_C, Rules.Slot.EMP_D]:
+	for s in Rules.EMPLOYEE_SLOTS:
 		if not actors.has(s):
 			return false
 		if (actors[s] as Actor).emp_state != Rules.EmpState.LEFT:
@@ -547,7 +582,7 @@ func _finish() -> void:
 	phase = "result"
 	var punched := 0
 	var people: Array = []
-	for s in [Rules.Slot.EMP_A, Rules.Slot.EMP_B, Rules.Slot.EMP_C, Rules.Slot.EMP_D]:
+	for s in Rules.EMPLOYEE_SLOTS:
 		var actor: Actor = actors[s]
 		var win := actor.emp_state == Rules.EmpState.LEFT
 		if win:
@@ -559,9 +594,9 @@ func _finish() -> void:
 			"time": clock_log.get(s, -1.0),
 		})
 	var boss_verdict := "胜"
-	if punched == 3:
+	if punched == 3 or punched == 4:
 		boss_verdict = "平"
-	elif punched >= 4:
+	elif punched >= 5:
 		boss_verdict = "负"
 	result = {"punched": punched, "boss": boss_verdict, "people": people}
 	finish_match.rpc(result)
@@ -588,6 +623,7 @@ func sync_lobby(p_slots: Dictionary, p_names: Dictionary, p_short: bool, p_phase
 		Rules.Slot.EMP_B: -1,
 		Rules.Slot.EMP_C: -1,
 		Rules.Slot.EMP_D: -1,
+		Rules.Slot.EMP_E: -1,
 	}
 	for k in p_slots.keys():
 		slots[int(k)] = int(p_slots[k])

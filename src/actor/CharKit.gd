@@ -6,6 +6,7 @@ const PACK := {
 	Rules.CharSkin.RABBIT: "rabbit",
 	Rules.CharSkin.COW: "cow",
 	Rules.CharSkin.PELICAN: "pelican",
+	Rules.CharSkin.KANGAROO: "kangaroo",
 	Rules.CharSkin.TIGER: "tiger",
 }
 
@@ -15,10 +16,12 @@ const RUN := ["run_0", "run_1", "run_2", "run_3"]
 const WORK := ["work_0", "work_1", "work_2", "work_3"]
 const SLEEP := ["sleep_0", "sleep_1", "sleep_2", "sleep_3"]
 const TOILET := ["toilet_0", "toilet_1", "toilet_2", "toilet_3"]
+const RIDE := ["ride_0", "ride_1", "ride_2", "ride_3"]
 const FALLBACK := {
 	"work": "work_0",
 	"sleep": "sleep_0",
 	"toilet": "toilet_0",
+	"ride": "idle_0",
 }
 
 static var _cache: Dictionary = {}
@@ -36,15 +39,48 @@ static func tex(skin: int, pose: String) -> Texture2D:
 	return _cache[key] as Texture2D
 
 
+static func has_scarf_layer(skin: int) -> bool:
+	return scarf_tex(skin, "idle_0") != null
+
+
+static func scarf_tex(skin: int, pose: String) -> Texture2D:
+	var pack := pack_id(skin)
+	var key := "%s/scarf/%s" % [pack, pose]
+	if _cache.has(key):
+		return _cache[key] as Texture2D
+	var tex := _try_tex("res://assets/game/chars/%s/scarf/%s.png" % [pack, pose])
+	if tex == null:
+		var fb := str(FALLBACK.get(pose, "idle_0"))
+		tex = _try_tex("res://assets/game/chars/%s/scarf/%s.png" % [pack, fb])
+	_cache[key] = tex
+	return tex
+
+
 static func _load_pose(pack: String, pose: String) -> Texture2D:
 	var path := "res://assets/game/chars/%s/%s.png" % [pack, pose]
-	if ResourceLoader.exists(path):
-		return load(path) as Texture2D
+	var tex := _try_tex(path)
+	if tex != null:
+		return tex
 	var fb := str(FALLBACK.get(pose, "idle_0"))
-	var fb_path := "res://assets/game/chars/%s/%s.png" % [pack, fb]
-	if ResourceLoader.exists(fb_path):
-		return load(fb_path) as Texture2D
-	return load("res://assets/game/chars/horse/idle_0.png") as Texture2D
+	if pose.begins_with("ride"):
+		fb = "idle_0"
+	tex = _try_tex("res://assets/game/chars/%s/%s.png" % [pack, fb])
+	if tex != null:
+		return tex
+	return _try_tex("res://assets/game/chars/horse/idle_0.png")
+
+
+static func _try_tex(path: String) -> Texture2D:
+	if ResourceLoader.exists(path):
+		var loaded: Resource = load(path)
+		if loaded is Texture2D:
+			return loaded as Texture2D
+	var abs_path := ProjectSettings.globalize_path(path)
+	if FileAccess.file_exists(abs_path):
+		var img := Image.load_from_file(abs_path)
+		if img != null and not img.is_empty():
+			return ImageTexture.create_from_image(img)
+	return null
 
 
 static func loop_frames(anim: String) -> PackedStringArray:
@@ -59,5 +95,7 @@ static func loop_frames(anim: String) -> PackedStringArray:
 			return PackedStringArray(SLEEP)
 		"toilet":
 			return PackedStringArray(TOILET)
+		"ride":
+			return PackedStringArray(RIDE)
 		_:
 			return PackedStringArray(IDLE)

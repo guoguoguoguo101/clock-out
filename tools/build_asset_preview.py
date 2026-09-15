@@ -42,6 +42,7 @@ CHAR_LABEL = {
     "panda": "熊猫",
     "penguin": "企鹅",
     "cat": "猫",
+    "kangaroo": "袋鼠",
 }
 
 

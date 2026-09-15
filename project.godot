@@ -3,7 +3,7 @@ config_version=5
 
 [application]
 config/name="clock-out"
-config/description="1 老板对 4 员工的办公室对战"
+config/description="1 老板对 5 员工的办公室对战"
 run/main_scene="res://src/game/Game.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.svg"

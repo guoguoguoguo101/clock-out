@@ -3,6 +3,7 @@ extends Node2D
 const MeterScript := preload("res://src/ui/Meter.gd")
 const LobbyHauntScript := preload("res://src/ui/LobbyHaunt.gd")
 const HauntTextScript := preload("res://src/ui/HauntText.gd")
+const BODY_SHADER := preload("res://src/actor/body.gdshader")
 
 var office: OfficeMap
 var camera: Camera2D
@@ -472,6 +473,16 @@ func _make_lobby_actors() -> Array[Sprite2D]:
 		actor.z_index = 2
 		actor.set_meta("lobby_actor", i)
 		actor.set_meta("lobby_frames", actor_frames)
+		if i == 0:
+			var scarf_frames: Array[Texture2D] = []
+			for pose in ["work_0", "work_1", "work_2", "work_3"]:
+				scarf_frames.append(_lobby_tex("res://assets/game/chars/horse/scarf/%s.png" % pose))
+			var scarf := Sprite2D.new()
+			scarf.name = "Scarf"
+			scarf.texture = scarf_frames[0]
+			scarf.modulate = Rules.scarf_color(Rules.CharSkin.HORSE)
+			actor.add_child(scarf)
+			actor.set_meta("lobby_scarf_frames", scarf_frames)
 		out.append(actor)
 	return out
 
@@ -682,7 +693,7 @@ func _build_home_page() -> void:
 	home_page.add_child(status_label)
 
 	var hint := HauntTextScript.new()
-	hint.text = "员工：小马 / 兔子 / 牛 / 鹈鹕    老板：老虎\n工时扣完才能打卡。未打卡，视为自愿加班。"
+	hint.text = "员工：小马 / 兔子 / 牛 / 鹈鹕 / 袋鼠    老板：老虎\n工时扣完才能打卡。未打卡，视为自愿加班。"
 	hint.position = Vector2(0, 612)
 	hint.size = Vector2(430, 48)
 	hint.font_size = 12
@@ -763,7 +774,7 @@ func _build_char_page() -> void:
 	slot_box = HBoxContainer.new()
 	slot_box.position = Vector2(28, 100)
 	slot_box.size = Vector2(944, 320)
-	slot_box.add_theme_constant_override("separation", 14)
+	slot_box.add_theme_constant_override("separation", 8)
 	char_page.add_child(slot_box)
 	var back := _lobby_btn("返回走廊", false)
 	back.position = Vector2(28, 460)
@@ -873,14 +884,52 @@ func _style_field(e: LineEdit) -> void:
 
 
 func _lobby_tex(path: String) -> Texture2D:
+	var img := Image.load_from_file(ProjectSettings.globalize_path(path))
+	if img != null and not img.is_empty():
+		return ImageTexture.create_from_image(img)
 	if ResourceLoader.exists(path):
 		var loaded: Resource = load(path)
 		if loaded is Texture2D:
 			return loaded
-	var img := Image.load_from_file(ProjectSettings.globalize_path(path))
-	if img != null and not img.is_empty():
-		return ImageTexture.create_from_image(img)
 	return null
+
+
+func _portrait_rect(tex: Texture2D, pos: Vector2, size: Vector2) -> TextureRect:
+	var pic := TextureRect.new()
+	pic.texture = tex
+	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	pic.position = pos
+	pic.size = size
+	pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return pic
+
+
+func _add_slot_portrait(card: Control, slot: int, rect: Rect2) -> void:
+	var pack := _char_pack(slot)
+	var skin: int = int(Rules.SKIN_FOR_SLOT.get(slot, Rules.CharSkin.HORSE))
+	var plate := ColorRect.new()
+	plate.color = Color(0.91, 0.87, 0.78)
+	plate.position = rect.position
+	plate.size = rect.size
+	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(plate)
+	var body := _portrait_rect(_lobby_tex("res://assets/game/chars/%s/idle_0.png" % pack), rect.position, rect.size)
+	if pack == "horse":
+		var body_mat := ShaderMaterial.new()
+		body_mat.shader = BODY_SHADER
+		body_mat.set_shader_parameter("body_color", Rules.body_color(skin))
+		body.material = body_mat
+	else:
+		var haunt := ShaderMaterial.new()
+		haunt.shader = preload("res://src/ui/lobby_haunt.gdshader")
+		body.material = haunt
+	card.add_child(body)
+	var scarf_tex := _lobby_tex("res://assets/game/chars/%s/scarf/idle_0.png" % pack)
+	if scarf_tex != null:
+		var scarf := _portrait_rect(scarf_tex, rect.position, rect.size)
+		scarf.modulate = Rules.scarf_color(skin)
+		card.add_child(scarf)
 
 
 func _char_pack(slot: int) -> String:
@@ -893,6 +942,8 @@ func _char_pack(slot: int) -> String:
 			return "cow"
 		Rules.Slot.EMP_D:
 			return "pelican"
+		Rules.Slot.EMP_E:
+			return "kangaroo"
 		_:
 			return "horse"
 
@@ -906,8 +957,8 @@ func _panel(rect: Rect2, color: Color) -> ColorRect:
 
 
 func _build_monitors() -> void:
-	var nicks := ["马", "兔", "牛", "鹈"]
-	for i in 4:
+	var nicks := ["马", "兔", "牛", "鹈", "袋"]
+	for i in 5:
 		var box := ColorRect.new()
 		box.color = Color(0.08, 0.09, 0.10, 0.88)
 		box.custom_minimum_size = Vector2(36, 28)
@@ -1034,7 +1085,7 @@ func _refresh_lobby() -> void:
 		return
 	for c in slot_box.get_children():
 		c.queue_free()
-	for s in [Rules.Slot.EMP_A, Rules.Slot.EMP_B, Rules.Slot.EMP_C, Rules.Slot.EMP_D, Rules.Slot.BOSS]:
+	for s in [Rules.Slot.EMP_A, Rules.Slot.EMP_B, Rules.Slot.EMP_C, Rules.Slot.EMP_D, Rules.Slot.EMP_E, Rules.Slot.BOSS]:
 		var pid := int(Match.slots.get(s, -1))
 		var who := "缺编"
 		if pid == 0:
@@ -1043,7 +1094,7 @@ func _refresh_lobby() -> void:
 			who = str(Match.names.get(pid, "工号%d" % pid))
 		var picked: int = int(s)
 		var card := Button.new()
-		card.custom_minimum_size = Vector2(176, 300)
+		card.custom_minimum_size = Vector2(142, 286)
 		card.toggle_mode = true
 		card.button_pressed = picked == wanted_slot
 		card.clip_contents = false
@@ -1061,31 +1112,21 @@ func _refresh_lobby() -> void:
 		card.add_theme_stylebox_override("normal", sb)
 		card.add_theme_stylebox_override("hover", sb)
 		card.add_theme_stylebox_override("pressed", sb)
-		var pic := TextureRect.new()
-		pic.texture = load("res://assets/game/chars/%s/idle_0.png" % _char_pack(picked))
-		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		pic.position = Vector2(18, 16)
-		pic.size = Vector2(140, 180)
-		pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var pic_mat := ShaderMaterial.new()
-		pic_mat.shader = preload("res://src/ui/lobby_haunt.gdshader")
-		pic.material = pic_mat
-		card.add_child(pic)
+		_add_slot_portrait(card, picked, Rect2(11, 10, 120, 168))
 		var nm := HauntTextScript.new()
 		nm.text = str(Rules.SLOT_NAMES[s])
-		nm.position = Vector2(8, 200)
-		nm.size = Vector2(160, 28)
-		nm.font_size = 16
+		nm.position = Vector2(4, 182)
+		nm.size = Vector2(134, 26)
+		nm.font_size = 14
 		nm.amp = 2.4
 		nm.align = HORIZONTAL_ALIGNMENT_CENTER
 		nm.base_color = Color(0.94, 0.86, 0.78)
 		card.add_child(nm)
 		var st := HauntTextScript.new()
 		st.text = who if s != Rules.Slot.BOSS else (who + " · 请勿对视")
-		st.position = Vector2(8, 232)
-		st.size = Vector2(160, 40)
-		st.font_size = 12
+		st.position = Vector2(4, 210)
+		st.size = Vector2(134, 52)
+		st.font_size = 11
 		st.amp = 2.0
 		st.wrap = true
 		st.align = HORIZONTAL_ALIGNMENT_CENTER
@@ -1229,7 +1270,7 @@ func _same_view_as(other: Actor) -> bool:
 
 
 func _slot_nick(slot: int) -> String:
-	var nicks := ["小马", "兔子", "牛", "鹈鹕"]
+	var nicks := ["小马", "兔子", "牛", "鹈鹕", "袋鼠"]
 	if Rules.slot_is_employee(slot):
 		return nicks[Rules.employee_index(slot)]
 	return "老板"
@@ -1262,6 +1303,8 @@ func _refresh_hud() -> void:
 			hint_label.text = "约谈中 · 等同事捞人    老板在这间屋就捞不走"
 		elif actor.emp_state == Rules.EmpState.WORK or actor.emp_state == Rules.EmpState.SLACK:
 			hint_label.text = "WASD 起身    E 起身    F 摸鱼    同事被约谈时走过去 E 捞人"
+		elif actor.skin == Rules.CharSkin.KANGAROO:
+			hint_label.text = "空地 E 电瓶车    E 坐下 / 续命 / 捞人 / 关门    F 摸鱼    WASD 走动"
 		else:
 			hint_label.text = "E 坐下 / 续命 / 捞人 / 关门    F 摸鱼    WASD 走动"
 	elif actor != null and actor.kind == Rules.Kind.BOSS:
@@ -1274,7 +1317,7 @@ func _refresh_hud() -> void:
 
 func _refresh_lamps() -> void:
 	var me := _local_actor()
-	var nicks := ["马", "兔", "牛", "鹈"]
+	var nicks := ["马", "兔", "牛", "鹈", "袋"]
 	for i in mate_box.size():
 		var slot := Rules.Slot.EMP_A + i
 		var box := mate_box[i]
@@ -1434,7 +1477,7 @@ func _update_camera(delta: float) -> void:
 		var snow := mate_snow[i]
 		if snow.color.a > 0.04:
 			snow.color.a = 0.10 + 0.16 * absf(sin(_breath_t * 12.0 + float(i) * 1.7))
-	if mate_box.size() == 4:
+	if mate_box.size() == 5:
 		for i in mate_box.size():
 			var slot := Rules.Slot.EMP_A + i
 			var e: Actor = Match.actors.get(slot) as Actor

@@ -70,13 +70,17 @@ const CARRY_RANGE := 76.0
 const CARRY_WINDUP := 0.32
 const CARRY_DURATION := 8.0
 const CARRY_RECOVERY := 0.65
+const BIKE_DURATION := 10.0
+const BIKE_SPEED_MUL := 1.45
 
 const BOSS_SPRITE := 0.11
 
-enum Slot { BOSS, EMP_A, EMP_B, EMP_C, EMP_D }
+enum Slot { BOSS, EMP_A, EMP_B, EMP_C, EMP_D, EMP_E }
 enum Kind { BOSS, EMPLOYEE }
 enum EmpState { WALK, WORK, SLACK, COFFEE, TOILET, MEETING, CLOCKING, LEFT, TALK, CARRIED }
-enum CharSkin { HORSE, RABBIT, COW, PELICAN, TIGER }
+enum CharSkin { HORSE, RABBIT, COW, PELICAN, KANGAROO, TIGER }
+
+const EMPLOYEE_SLOTS := [Slot.EMP_A, Slot.EMP_B, Slot.EMP_C, Slot.EMP_D, Slot.EMP_E]
 
 const SLOT_NAMES := {
 	Slot.BOSS: "老板",
@@ -84,6 +88,7 @@ const SLOT_NAMES := {
 	Slot.EMP_B: "员工·兔子",
 	Slot.EMP_C: "员工·牛",
 	Slot.EMP_D: "员工·鹈鹕",
+	Slot.EMP_E: "员工·袋鼠",
 }
 
 const SKIN_FOR_SLOT := {
@@ -92,6 +97,11 @@ const SKIN_FOR_SLOT := {
 	Slot.EMP_B: CharSkin.RABBIT,
 	Slot.EMP_C: CharSkin.COW,
 	Slot.EMP_D: CharSkin.PELICAN,
+	Slot.EMP_E: CharSkin.KANGAROO,
+}
+
+const BODY_FOR_SKIN := {
+	CharSkin.HORSE: Color("25262C"),
 }
 
 const SCARF_FOR_SKIN := {
@@ -99,6 +109,11 @@ const SCARF_FOR_SKIN := {
 	CharSkin.RABBIT: Color("F4C14A"),
 	CharSkin.COW: Color("E23B3B"),
 	CharSkin.PELICAN: Color("7B5CFF"),
+	CharSkin.KANGAROO: Color("FF9A1A"),
+}
+
+const BIKE_COLOR_FOR_SKIN := {
+	CharSkin.KANGAROO: Color("FF9A1A"),
 }
 
 const STATE_NAMES := {
@@ -114,12 +129,20 @@ const STATE_NAMES := {
 	EmpState.CARRIED: "顺风嘴 · 搭乘中",
 }
 
+func body_color(skin: int) -> Color:
+	return BODY_FOR_SKIN.get(skin, Color("25262C"))
+
+
 func scarf_color(skin: int) -> Color:
 	return SCARF_FOR_SKIN.get(skin, Color("3EE0F2"))
 
 
+func bike_color(skin: int) -> Color:
+	return BIKE_COLOR_FOR_SKIN.get(skin, Color("F5C116"))
+
+
 func slot_is_employee(slot: int) -> bool:
-	return slot >= Slot.EMP_A and slot <= Slot.EMP_D
+	return slot >= Slot.EMP_A and slot <= Slot.EMP_E
 
 
 func employee_index(slot: int) -> int:

@@ -497,7 +497,12 @@ func _process(delta: float) -> void:
 		var tempo := 0.9 + float(i) * 0.17
 		var frames: Variant = actor.get_meta("lobby_frames", [])
 		if frames is Array and not (frames as Array).is_empty():
-			actor.texture = (frames as Array)[int(_t * tempo) % (frames as Array).size()]
+			var idx := int(_t * tempo) % (frames as Array).size()
+			actor.texture = (frames as Array)[idx]
+			var scarf_frames: Variant = actor.get_meta("lobby_scarf_frames", [])
+			var scarf := actor.get_node_or_null("Scarf") as Sprite2D
+			if scarf != null and scarf_frames is Array and idx < (scarf_frames as Array).size():
+				scarf.texture = (scarf_frames as Array)[idx]
 		actor.position.y += sin(_t * (0.8 + float(i) * 0.12)) * delta * 1.3
 		if i == 1 and fmod(_t, 11.0) > 2.0:
 			actor.frame = 0

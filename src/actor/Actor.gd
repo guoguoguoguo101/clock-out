@@ -3,13 +3,16 @@ class_name Actor
 
 const SNAP_HZ := 15.0
 const Kit := preload("res://src/actor/CharKit.gd")
+const Ride := preload("res://src/actor/RideKit.gd")
 const SCARF_SHADER := preload("res://src/actor/scarf.gdshader")
+const BODY_SHADER := preload("res://src/actor/body.gdshader")
 const PAPER_TEX := preload("res://assets/game/props/paper.png")
 const COFFEE_TEX := preload("res://assets/game/props/coffee.png")
 
 @onready var name_label: Label = $Name
 
 var body_sprite: Sprite2D
+var scarf_sprite: Sprite2D
 var zzz_label: Label
 var hold_sprite: Sprite2D
 var hours_chip: Label
@@ -49,6 +52,9 @@ var carry_recovery := 0.0
 var carry_saved_talk := -1.0
 var carry_visual: Node2D
 var landing_left := 0.0
+var bike_left := 0.0
+var bike_sprite: Sprite2D
+var bike_front: Sprite2D
 
 var meeting_cd := 0.0
 var kpi_cd := 0.0
@@ -110,11 +116,11 @@ func nearby_action() -> String:
 	if carried_by >= 0:
 		return "顺风嘴 · E 主动下来"
 	if carrying_slot >= 0:
-		return "跨部门捞人 · E 放下同事（%.0fs）" % ceilf(carry_left)
+		return "接活水 · E 放下同事（%.0fs）" % ceilf(carry_left)
 	if skin == Rules.CharSkin.PELICAN and emp_state == Rules.EmpState.WALK and stand_lock <= 0.0:
 		var passenger: Actor = Match.nearest_carry_target(self)
 		if passenger != null:
-			return "E 叼走「%s」" % passenger.display_name
+			return "E 接活水「%s」" % passenger.display_name
 	if emp_state == Rules.EmpState.TALK:
 		if Match.is_watched(self):
 			return "约谈中 · 老板盯着，捞不走"
@@ -154,6 +160,10 @@ func nearby_action() -> String:
 	var toilet := map.nearest_free("toilet", global_position)
 	if toilet != "" and global_position.distance_to(map.points[toilet]) < Rules.INTERACT_RANGE:
 		return "E 暂时离线"
+	if skin == Rules.CharSkin.KANGAROO and emp_state == Rules.EmpState.WALK and stand_lock <= 0.0:
+		if bike_left > 0.0:
+			return "电瓶车 · 还剩 %.0fs" % ceilf(bike_left)
+		return "E 召唤电瓶车（10秒）"
 	return ""
 
 
@@ -201,12 +211,21 @@ func _ensure_sprite() -> void:
 	body_sprite.texture = _skin_tex()
 	body_sprite.centered = false
 	body_sprite.z_index = 1
-	_apply_scarf()
+	body_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	add_child(body_sprite)
+	scarf_sprite = Sprite2D.new()
+	scarf_sprite.name = "Scarf"
+	scarf_sprite.centered = false
+	scarf_sprite.z_index = 2
+	scarf_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	add_child(scarf_sprite)
+	_apply_scarf()
 	if skin == Rules.CharSkin.PELICAN:
 		carry_visual = preload("res://src/fx/PelicanCarry.gd").new()
 		carry_visual.z_index = 3
 		add_child(carry_visual)
+	if kind == Rules.Kind.EMPLOYEE:
+		_ensure_bike_sprites()
 	zzz_label = Label.new()
 	zzz_label.text = "z z"
 	zzz_label.visible = false
@@ -216,7 +235,7 @@ func _ensure_sprite() -> void:
 	add_child(zzz_label)
 	hold_sprite = Sprite2D.new()
 	hold_sprite.centered = true
-	hold_sprite.z_index = 2
+	hold_sprite.z_index = 4
 	hold_sprite.visible = false
 	add_child(hold_sprite)
 	hours_chip = _make_chip(Color(0.22, 0.48, 0.58))
@@ -261,11 +280,41 @@ func _apply_scarf() -> void:
 		return
 	if kind != Rules.Kind.EMPLOYEE:
 		body_sprite.material = null
+		if scarf_sprite:
+			scarf_sprite.visible = false
+		return
+	if Kit.has_scarf_layer(skin):
+		var body_mat := ShaderMaterial.new()
+		body_mat.shader = BODY_SHADER
+		body_mat.set_shader_parameter("body_color", Rules.body_color(skin))
+		body_sprite.material = body_mat
 		return
 	var mat := ShaderMaterial.new()
 	mat.shader = SCARF_SHADER
 	mat.set_shader_parameter("scarf_color", Rules.scarf_color(skin))
 	body_sprite.material = mat
+
+
+func _sync_scarf(pose: String) -> void:
+	if scarf_sprite == null:
+		return
+	if kind != Rules.Kind.EMPLOYEE or not Kit.has_scarf_layer(skin):
+		scarf_sprite.visible = false
+		return
+	var tex: Texture2D = Kit.scarf_tex(skin, pose)
+	if tex == null or body_sprite == null or not body_sprite.visible:
+		scarf_sprite.visible = false
+		return
+	scarf_sprite.visible = true
+	scarf_sprite.texture = tex
+	scarf_sprite.position = body_sprite.position
+	scarf_sprite.offset = body_sprite.offset
+	scarf_sprite.scale = body_sprite.scale
+	scarf_sprite.rotation = body_sprite.rotation
+	scarf_sprite.flip_h = body_sprite.flip_h
+	var tint := Rules.scarf_color(skin)
+	var threat := body_sprite.modulate
+	scarf_sprite.modulate = Color(tint.r * threat.r, tint.g * threat.g, tint.b * threat.b, 1.0)
 
 
 func _make_chip(color: Color) -> Label:
@@ -297,6 +346,9 @@ func _update_visual(delta := 0.0) -> void:
 	if sitting:
 		sc *= 0.92
 	sc *= 1024.0 / maxf(sz.y, 1.0)
+	var walk_sc := sc
+	if _is_riding():
+		sc *= Ride.RIDER_SCALE_MUL
 	body_sprite.position = Vector2.ZERO
 	body_sprite.rotation = 0.0
 	body_sprite.scale = Vector2(sc, sc)
@@ -311,8 +363,9 @@ func _update_visual(delta := 0.0) -> void:
 		body_sprite.position.x = (1.0 if _facing.x >= 0.0 else -1.0) * lean * 7.0
 		body_sprite.position.y = sin(_anim_acc * 12.0) * 1.5
 	body_sprite.visible = carried_by < 0
-	body_sprite.offset = Vector2(-sz.x * 0.5, -sz.y + 22.0)
+	body_sprite.offset = Vector2(-sz.x * 0.5, -sz.y + Ride.FOOT_PAD)
 	body_sprite.flip_h = (not sitting) and _facing.x < 0.0
+	_update_bike_visual(_is_riding(), walk_sc)
 	if zzz_label:
 		if emp_state == Rules.EmpState.TALK:
 			zzz_label.visible = true
@@ -332,6 +385,7 @@ func _update_visual(delta := 0.0) -> void:
 	_update_world_text(sz.y * sc, delta)
 	_update_hold()
 	_update_threat_modulate()
+	_sync_scarf(pose)
 	if carried_by >= 0:
 		name_label.visible = false
 		zzz_label.visible = false
@@ -356,9 +410,11 @@ func _anim_pose() -> String:
 		Rules.EmpState.TOILET:
 			anim = "toilet"
 		Rules.EmpState.CLOCKING:
-			anim = "run"
+			anim = "ride" if _is_riding() else "run"
 		_:
-			if velocity.length() > 24.0:
+			if _is_riding():
+				anim = "ride"
+			elif velocity.length() > 24.0:
 				anim = "run" if dash_left > 0.0 else "walk"
 			else:
 				anim = "idle"
@@ -368,6 +424,37 @@ func _anim_pose() -> String:
 		fps = 4.0
 	var i: int = int(_anim_acc * fps) % frames.size()
 	return frames[i]
+
+
+func _is_riding() -> bool:
+	return bike_left > 0.0 and carried_by < 0 and (emp_state == Rules.EmpState.WALK or emp_state == Rules.EmpState.CLOCKING)
+
+
+func _dismount_bike() -> void:
+	if bike_left <= 0.0:
+		return
+	Match.clear_bike(self)
+
+
+func _ensure_bike_sprites() -> void:
+	if bike_sprite != null:
+		return
+	bike_sprite = Sprite2D.new()
+	bike_sprite.name = "BikeBack"
+	bike_front = Sprite2D.new()
+	bike_front.name = "BikeFront"
+	add_child(bike_sprite)
+	add_child(bike_front)
+	Ride.setup(bike_sprite, bike_front, Rules.bike_color(skin))
+
+
+func _update_bike_visual(riding: bool, walk_sc := Rules.SPRITE_SCALE) -> void:
+	if not riding:
+		Ride.hide(bike_sprite, bike_front)
+		return
+	_ensure_bike_sprites()
+	var bob := sin(_anim_acc * 11.0) * 1.2 if velocity.length() > 24.0 else 0.0
+	Ride.apply(body_sprite, bike_sprite, bike_front, skin, _facing.x, walk_sc, bob)
 
 
 func _update_chips(body_h: float) -> void:
@@ -469,6 +556,10 @@ func _physics_process(delta: float) -> void:
 
 func _server_tick(delta: float) -> void:
 	carry_recovery = maxf(0.0, carry_recovery - delta)
+	if bike_left > 0.0:
+		bike_left = maxf(0.0, bike_left - delta)
+		if bike_left <= 0.0:
+			Match.clear_bike(self)
 	stand_lock = max(0.0, stand_lock - delta)
 	catch_chain = max(0.0, catch_chain - delta)
 	coffee_buff = max(0.0, coffee_buff - delta)
@@ -532,7 +623,8 @@ func _employee_tick(delta: float) -> void:
 			var blocked = office().nearest_door(global_position, 56.0)
 			if blocked != null and blocked.closed:
 				office().try_door(self)
-			_move_towards(office().path_to(global_position, target), Rules.EMPLOYEE_SPEED, delta)
+			var clock_speed := Rules.EMPLOYEE_SPEED * (Rules.BIKE_SPEED_MUL if bike_left > 0.0 else 1.0)
+			_move_towards(office().path_to(global_position, target), clock_speed, delta)
 			if global_position.distance_to(target) < Rules.CLOCK_RANGE:
 				_clock_out()
 			return
@@ -587,6 +679,8 @@ func _employee_tick(delta: float) -> void:
 	var speed := Rules.EMPLOYEE_SPEED
 	if boost_left > 0.0:
 		speed *= Rules.RESCUE_BOOST_MUL
+	if bike_left > 0.0:
+		speed *= Rules.BIKE_SPEED_MUL
 	if is_bot():
 		velocity = input_dir.normalized() * speed if input_dir.length() > 0.1 else Vector2.ZERO
 	else:
@@ -635,6 +729,7 @@ func _try_employee_interact() -> void:
 	var seat := map.nearest_spot("seat", global_position, Rules.INTERACT_RANGE)
 	if seat != "":
 		if map.take_spot(seat, slot):
+			_dismount_bike()
 			emp_state = Rules.EmpState.WORK
 			global_position = map.points[seat]
 			occupy_id = seat
@@ -643,6 +738,7 @@ func _try_employee_interact() -> void:
 	var coffee := map.nearest_free("coffee", global_position)
 	if coffee != "" and global_position.distance_to(map.points[coffee]) < Rules.INTERACT_RANGE:
 		if map.take_spot(coffee, slot):
+			_dismount_bike()
 			occupy_id = coffee
 			emp_state = Rules.EmpState.COFFEE
 			global_position = map.points[coffee]
@@ -650,9 +746,12 @@ func _try_employee_interact() -> void:
 	var toilet := map.nearest_free("toilet", global_position)
 	if toilet != "" and global_position.distance_to(map.points[toilet]) < Rules.INTERACT_RANGE:
 		if map.take_spot(toilet, slot):
+			_dismount_bike()
 			occupy_id = toilet
 			emp_state = Rules.EmpState.TOILET
 			global_position = map.points[toilet]
+		return
+	Match.try_bike(self)
 
 
 func _stand_up() -> void:
@@ -669,6 +768,7 @@ func _begin_clocking() -> void:
 
 
 func _clock_out() -> void:
+	_dismount_bike()
 	emp_state = Rules.EmpState.LEFT
 	visible = false
 	Match.on_clock_out(slot)
@@ -685,6 +785,7 @@ func _tick_talk(delta: float) -> void:
 
 func begin_talk() -> void:
 	Match.release_actor_carry(self, true)
+	_dismount_bike()
 	_stand_up()
 	emp_state = Rules.EmpState.TALK
 	talk_progress = 0.0
@@ -705,6 +806,7 @@ func clear_rescue() -> void:
 func apply_catch(repeat: bool, extra_stun: float) -> void:
 	if emp_state == Rules.EmpState.CLOCKING or emp_state == Rules.EmpState.LEFT:
 		return
+	_dismount_bike()
 	_stand_up()
 	hours += Rules.CATCH_HOURS_REPEAT if repeat else Rules.CATCH_HOURS_FIRST
 	stand_lock = Rules.CATCH_STAND_LOCK + extra_stun
@@ -719,6 +821,7 @@ func send_to_meeting(seconds: float, meeting_pos: Vector2) -> void:
 	Match.release_actor_carry(self, true)
 	if emp_state == Rules.EmpState.CLOCKING or emp_state == Rules.EmpState.LEFT:
 		return
+	_dismount_bike()
 	_stand_up()
 	emp_state = Rules.EmpState.MEETING
 	meeting_left = seconds
@@ -787,7 +890,7 @@ func recv_input(x: float, y: float, interact: bool, slack: bool, meeting: bool, 
 	apply_input(x, y, interact, slack, meeting, kpi, dash)
 
 
-func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, talk: float = 0.0, rescue: float = 0.0) -> void:
+func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0) -> void:
 	_remote_pos = Vector2(px, py)
 	emp_state = st
 	hours = h
@@ -798,12 +901,13 @@ func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool
 	dash_cd = dcd
 	talk_progress = talk
 	rescue_left = rescue
+	bike_left = bike
 	if name_label:
 		name_label.text = display_name
 
 
 func _broadcast_state() -> void:
-	Match.sync_actor.rpc(slot, global_position.x, global_position.y, emp_state, hours, energy, visible, meeting_cd, kpi_cd, dash_cd, occupy_id, talk_progress, rescue_left)
+	Match.sync_actor.rpc(slot, global_position.x, global_position.y, emp_state, hours, energy, visible, meeting_cd, kpi_cd, dash_cd, occupy_id, talk_progress, rescue_left, bike_left)
 
 
 func _show_resource_bars() -> bool:
