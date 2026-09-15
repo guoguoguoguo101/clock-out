@@ -57,8 +57,7 @@ const MEETING_TIME := 30.0
 const MEETING_CD := 18.0
 const TIGER_MEETING_TIME := 30.0
 const TIGER_MEETING_CD := 0.0
-const TIGER_MEETING_RANGE := 420.0
-const TIGER_MEETING_CONE := 55.0
+const TIGER_MEETING_RANGE := 180.0
 const TIGER_POWER_MAX := 3
 
 const TIGER_LUNGE_TIME := 0.32
@@ -89,6 +88,10 @@ const UI_POWER_OFF := "res://assets/game/ui/power_pip_off.png"
 const EMP_DASH_CD := 8.0
 const EMP_DASH_TIME := 0.28
 const EMP_DASH_SPEED := 360.0
+const PELICAN_FLY_CD := 10.0
+const PELICAN_FLY_TIME := 0.45
+const PELICAN_FLY_SPEED := 480.0
+const PELICAN_FLY_LIFT := 92.0
 
 const REPORT_SPEED := 310.0
 const REPORT_LIFE := 1.35
@@ -161,6 +164,12 @@ const CARRY_RECOVERY := 0.65
 const BIKE_DURATION := 10.0
 const BIKE_SPEED_MUL := 1.45
 const BIKE_CD := 3.0
+const DOG_PACK_COUNT := 3
+const DOG_PACK_TIME := 8.0
+const DOG_PACK_CD := 12.0
+const DOG_PACK_SPEED_MUL := 1.12
+const DOG_PACK_HIT := 36.0
+const DOG_PACK_STUN := 0.55
 
 const STOCK_TIME := 10.0
 const STOCK_START := 100.0

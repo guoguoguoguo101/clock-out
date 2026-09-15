@@ -54,9 +54,8 @@ const (
 
 	MeetingTime    = 30.0
 	TigerMeetingCD = 0.0
-	MeetingRange   = 420.0
-	TigerMeetingCone = 55.0
-	TigerPowerMax    = 3
+	MeetingRange   = 180.0
+	TigerPowerMax  = 3
 	TigerLungeTime   = 0.32
 	TigerLungeSpeed  = 320.0
 	TigerLungeRadius = 46.0
@@ -102,6 +101,9 @@ const (
 	TigerDashCD    = 12.0
 	TigerDashTime  = 0.28
 	TigerDashSpeed = 420.0
+	PelicanFlyCD    = 10.0
+	PelicanFlyTime  = 0.45
+	PelicanFlySpeed = 480.0
 
 	InteractRange = 64.0
 	DoorRange     = 62.0

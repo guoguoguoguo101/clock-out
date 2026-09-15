@@ -4,6 +4,7 @@ const MeterScript := preload("res://src/ui/Meter.gd")
 const CellMeterScript := preload("res://src/ui/CellMeter.gd")
 const EnergyPlayScript := preload("res://src/ui/EnergyPlay.gd")
 const LobbyHauntScript := preload("res://src/ui/LobbyHaunt.gd")
+const LobbyPointerScript := preload("res://src/ui/LobbyPointer.gd")
 const HauntTextScript := preload("res://src/ui/HauntText.gd")
 const StockDeskScript := preload("res://src/ui/StockDesk.gd")
 const BODY_SHADER := preload("res://src/actor/body.gdshader")
@@ -60,6 +61,7 @@ var blackout_veil: ColorRect
 var anon_arrow: Node2D
 var char_page: Control
 var haunt
+var pointer
 var room_code_edit: LineEdit
 var room_list_box: VBoxContainer
 var enter_char_btn: Button
@@ -77,6 +79,7 @@ var _pulse_report := false
 var _pulse_fan := false
 var _pulse_incident := false
 var _pulse_blame := false
+var _pulse_fly := false
 var _e_down := false
 var _f_down := false
 var _q_down := false
@@ -85,6 +88,7 @@ var _shift_down := false
 var _g_down := false
 var _t_down := false
 var _esc_down := false
+var _space_down := false
 var _cam_z := 1.1
 var _shake := 0.0
 var _catch_t := 0.0
@@ -531,10 +535,23 @@ func _build_lobby() -> void:
 		"rec": rec,
 		"lcd": home_page.get_node_or_null("HauntLcd"),
 		"led": home_page.get_node_or_null("HauntLed"),
+		"stamp": home_page.get_node_or_null("HauntStamp"),
 		"layers": lobby_layers,
 		"actors": lobby_actors,
 	})
 	haunt.dress(lobby)
+	pointer = LobbyPointerScript.new()
+	lobby.add_child(pointer)
+	pointer.bind(haunt, {
+		"lobby": lobby,
+		"hero": hero,
+		"home_page": home_page,
+		"join_page": join_page,
+		"char_page": char_page,
+		"punch": home_page.get_node_or_null("HauntPunch"),
+		"cam": cam,
+		"exit_sign": haunt.exit_sign,
+	})
 	_show_lobby_page("home")
 
 
@@ -632,6 +649,7 @@ func _build_home_page() -> void:
 	tape_lab.base_color = Color(0.78, 0.72, 0.64)
 	tape.add_child(tape_lab)
 	var stamp := Panel.new()
+	stamp.name = "HauntStamp"
 	stamp.position = Vector2(392, 168)
 	stamp.size = Vector2(58, 58)
 	stamp.rotation = 0.28
@@ -754,16 +772,20 @@ func _build_home_page() -> void:
 	poster.add_child(poster_lab)
 
 	var start_btn := _lobby_btn("打卡上班", true)
+	start_btn.name = "StartBtn"
+	start_btn.set_meta("pointer_id", "start")
 	start_btn.position = Vector2(0, 148)
 	start_btn.pressed.connect(_click_start)
 	home_page.add_child(start_btn)
 
 	var join_btn := _lobby_btn("接入监控", false)
+	join_btn.set_meta("pointer_id", "join")
 	join_btn.position = Vector2(0, 212)
 	join_btn.pressed.connect(func(): _show_lobby_page("join"))
 	home_page.add_child(join_btn)
 
 	var char_btn := _lobby_btn("身份核验", false)
+	char_btn.set_meta("pointer_id", "verify")
 	char_btn.position = Vector2(0, 276)
 	char_btn.pressed.connect(func(): _show_lobby_page("char"))
 	home_page.add_child(char_btn)
@@ -780,6 +802,7 @@ func _build_home_page() -> void:
 	short_check.text = "试用期 · 未满勤不得走"
 	short_check.button_pressed = true
 	short_check.position = Vector2(0, 392)
+	short_check.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	short_check.add_theme_color_override("font_color", Color(0.78, 0.62, 0.54))
 	home_page.add_child(short_check)
 
@@ -976,6 +999,7 @@ func _lobby_btn(text: String, primary: bool) -> Button:
 	b.clip_contents = false
 	b.add_to_group("haunt_btn")
 	b.set_meta("haunt_base", text)
+	b.set_meta("pointer_id", "ui")
 	var sb := StyleBoxFlat.new()
 	sb.corner_radius_top_left = 2
 	sb.corner_radius_top_right = 14
@@ -1753,6 +1777,18 @@ func _refresh_hud() -> void:
 			st = "开会中 · 可捞"
 		if actor.slow_left > 0.05:
 			st += "  被周报压住 %.0fs" % actor.slow_left
+		if actor.skin == Rules.CharSkin.PELICAN:
+			if actor.fly_cd > 0.05:
+				st += "  飞走 %.0fs" % actor.fly_cd
+			else:
+				st += "  飞走就绪"
+		if actor.skin == Rules.CharSkin.DOG:
+			if actor.pack_hp > 0:
+				st += "  兄弟 %d" % actor.pack_hp
+			elif actor.pack_cd > 0.05:
+				st += "  兄弟 %.0fs" % actor.pack_cd
+			else:
+				st += "  兄弟就绪"
 		if actor.dash_cd > 0.05:
 			st += "  冲刺 %.0fs" % actor.dash_cd
 		else:
@@ -1773,8 +1809,12 @@ func _refresh_hud() -> void:
 				hint_label.text = "E 确认开工「%s」    F 摸鱼    WASD 起身" % Rules.task_name(actor.tasks_done)
 		elif actor.play_kind != "":
 			hint_label.text = "F 卡点 / 拆包装    E 放弃    老板靠近会被约谈"
+		elif actor.skin == Rules.CharSkin.PELICAN:
+			hint_label.text = "E 接活水    空格飞走穿墙（可带人）    Shift 冲刺"
 		elif actor.skin == Rules.CharSkin.KANGAROO:
 			hint_label.text = "先找精力再开工    F 骑车 / 下车    下车后才能交互    E 坐下后还要再确认开工    Shift 冲刺"
+		elif actor.skin == Rules.CharSkin.DOG:
+			hint_label.text = "走廊空按 E 喊兄弟    三只小狗跟 8 秒、各挡一次短扑或周报    开会和 KPI 照打    Shift 冲刺"
 		else:
 			hint_label.text = "先找精力：茶水间手冲、饮水机、零食、翻抽屉    E 坐下后还要再确认开工    Shift 冲刺"
 	elif actor != null and actor.kind == Rules.Kind.BOSS:
@@ -1901,14 +1941,14 @@ func _process(delta: float) -> void:
 		dir.y += 1
 	if Net.go_match():
 		_go_input_t += delta
-		var pulsed := _pulse_interact or _pulse_slack or _pulse_meeting or _pulse_kpi or _pulse_dash or _pulse_report or _pulse_fan or _pulse_incident or _pulse_blame
+		var pulsed := _pulse_interact or _pulse_slack or _pulse_meeting or _pulse_kpi or _pulse_dash or _pulse_report or _pulse_fan or _pulse_fly or _pulse_incident or _pulse_blame
 		if pulsed or _go_input_t >= 0.05:
 			_go_input_t = 0.0
-			Net.send_input(dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash)
+			Net.send_input(dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash, _pulse_fly, _pulse_incident, _pulse_blame)
 	elif Net.is_enet_server():
-		actor.apply_input(dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash, _pulse_report, _pulse_fan, _pulse_incident, _pulse_blame)
+		actor.apply_input(dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash, _pulse_report, _pulse_fan, _pulse_fly, _pulse_incident, _pulse_blame)
 	else:
-		actor.recv_input.rpc_id(1, dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash, _pulse_report, _pulse_fan, _pulse_incident, _pulse_blame)
+		actor.recv_input.rpc_id(1, dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash, _pulse_report, _pulse_fan, _pulse_fly, _pulse_incident, _pulse_blame)
 	_pulse_interact = false
 	_pulse_slack = false
 	_pulse_meeting = false
@@ -1918,6 +1958,7 @@ func _process(delta: float) -> void:
 	_pulse_fan = false
 	_pulse_incident = false
 	_pulse_blame = false
+	_pulse_fly = false
 
 
 func _update_camera(delta: float) -> void:
@@ -2084,10 +2125,17 @@ func _edge_keys() -> void:
 	var g := Input.is_physical_key_pressed(KEY_G)
 	var t_key := Input.is_physical_key_pressed(KEY_T)
 	var esc := Input.is_physical_key_pressed(KEY_ESCAPE)
+	var space := Input.is_physical_key_pressed(KEY_SPACE)
 	var actor := _local_actor()
 	var boss := actor != null and actor.kind == Rules.Kind.BOSS
-	if e and not _e_down:
-		_pulse_interact = true
+	if boss and Match.playing:
+		if space and not _space_down:
+			_pulse_interact = true
+	else:
+		if e and not _e_down:
+			_pulse_interact = true
+		if space and not _space_down:
+			_pulse_fly = true
 	if f and not _f_down:
 		if boss:
 			_pulse_report = true
@@ -2116,6 +2164,7 @@ func _edge_keys() -> void:
 	_g_down = g
 	_t_down = t_key
 	_esc_down = esc
+	_space_down = space
 
 
 func _fmt(sec: float) -> String:

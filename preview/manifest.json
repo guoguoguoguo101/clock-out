@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-09-15 19:27:28",
-  "count": 540,
+  "generated_at": "2026-09-15 20:48:42",
+  "count": 556,
   "kinds": {
     "concept": 39,
-    "chars": 284,
+    "chars": 300,
     "other": 7,
     "props": 49,
     "ui": 24,
@@ -469,7 +469,7 @@
       "group": "concept/boss-tiger",
       "folder": "concept/boss-tiger",
       "bytes": 100466,
-      "mtime": 1789469663,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -485,7 +485,7 @@
       "group": "concept/boss-tiger",
       "folder": "concept/boss-tiger",
       "bytes": 94050,
-      "mtime": 1789469664,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -501,7 +501,7 @@
       "group": "concept/boss-tiger",
       "folder": "concept/boss-tiger",
       "bytes": 158366,
-      "mtime": 1789469670,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -517,7 +517,7 @@
       "group": "concept/boss-tiger",
       "folder": "concept/boss-tiger",
       "bytes": 135110,
-      "mtime": 1789470366,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -533,7 +533,7 @@
       "group": "concept/boss-tiger",
       "folder": "concept/boss-tiger",
       "bytes": 140870,
-      "mtime": 1789469683,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -549,7 +549,7 @@
       "group": "concept/boss-tiger",
       "folder": "concept/boss-tiger",
       "bytes": 118046,
-      "mtime": 1789469677,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -565,7 +565,7 @@
       "group": "concept/boss-tiger",
       "folder": "concept/boss-tiger",
       "bytes": 138862,
-      "mtime": 1789470118,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -581,7 +581,7 @@
       "group": "concept/boss-tiger",
       "folder": "concept/boss-tiger",
       "bytes": 152509,
-      "mtime": 1789470116,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -597,7 +597,7 @@
       "group": "concept/boss-tiger",
       "folder": "concept/boss-tiger",
       "bytes": 174665,
-      "mtime": 1789470124,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -613,7 +613,7 @@
       "group": "concept/boss-tiger",
       "folder": "concept/boss-tiger",
       "bytes": 139547,
-      "mtime": 1789470131,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -629,7 +629,263 @@
       "group": "concept/boss-tiger",
       "folder": "concept/boss-tiger",
       "bytes": 139169,
-      "mtime": 1789470136,
+      "mtime": 1789471922,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/idle_0.png",
+      "src": "../assets/game/chars/bros/idle_0.png",
+      "name": "idle_0",
+      "file": "idle_0.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros",
+      "bytes": 187554,
+      "mtime": 1789476508,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/idle_1.png",
+      "src": "../assets/game/chars/bros/idle_1.png",
+      "name": "idle_1",
+      "file": "idle_1.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros",
+      "bytes": 156656,
+      "mtime": 1789476509,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/idle_2.png",
+      "src": "../assets/game/chars/bros/idle_2.png",
+      "name": "idle_2",
+      "file": "idle_2.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros",
+      "bytes": 171480,
+      "mtime": 1789476510,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/idle_3.png",
+      "src": "../assets/game/chars/bros/idle_3.png",
+      "name": "idle_3",
+      "file": "idle_3.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros",
+      "bytes": 165792,
+      "mtime": 1789476511,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/run_0.png",
+      "src": "../assets/game/chars/bros/run_0.png",
+      "name": "run_0",
+      "file": "run_0.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros",
+      "bytes": 180224,
+      "mtime": 1789476512,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/run_1.png",
+      "src": "../assets/game/chars/bros/run_1.png",
+      "name": "run_1",
+      "file": "run_1.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros",
+      "bytes": 190709,
+      "mtime": 1789476513,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/run_2.png",
+      "src": "../assets/game/chars/bros/run_2.png",
+      "name": "run_2",
+      "file": "run_2.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros",
+      "bytes": 173451,
+      "mtime": 1789476513,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/run_3.png",
+      "src": "../assets/game/chars/bros/run_3.png",
+      "name": "run_3",
+      "file": "run_3.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros",
+      "bytes": 212235,
+      "mtime": 1789476514,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/scarf/idle_0.png",
+      "src": "../assets/game/chars/bros/scarf/idle_0.png",
+      "name": "idle_0",
+      "file": "idle_0.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros/scarf",
+      "bytes": 20932,
+      "mtime": 1789476508,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/scarf/idle_1.png",
+      "src": "../assets/game/chars/bros/scarf/idle_1.png",
+      "name": "idle_1",
+      "file": "idle_1.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros/scarf",
+      "bytes": 11847,
+      "mtime": 1789476509,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/scarf/idle_2.png",
+      "src": "../assets/game/chars/bros/scarf/idle_2.png",
+      "name": "idle_2",
+      "file": "idle_2.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros/scarf",
+      "bytes": 13038,
+      "mtime": 1789476510,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/scarf/idle_3.png",
+      "src": "../assets/game/chars/bros/scarf/idle_3.png",
+      "name": "idle_3",
+      "file": "idle_3.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros/scarf",
+      "bytes": 16723,
+      "mtime": 1789476511,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/scarf/run_0.png",
+      "src": "../assets/game/chars/bros/scarf/run_0.png",
+      "name": "run_0",
+      "file": "run_0.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros/scarf",
+      "bytes": 13583,
+      "mtime": 1789476512,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/scarf/run_1.png",
+      "src": "../assets/game/chars/bros/scarf/run_1.png",
+      "name": "run_1",
+      "file": "run_1.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros/scarf",
+      "bytes": 13860,
+      "mtime": 1789476513,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/scarf/run_2.png",
+      "src": "../assets/game/chars/bros/scarf/run_2.png",
+      "name": "run_2",
+      "file": "run_2.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros/scarf",
+      "bytes": 15917,
+      "mtime": 1789476513,
+      "w": 1024,
+      "h": 1024,
+      "audio": false
+    },
+    {
+      "rel": "game/chars/bros/scarf/run_3.png",
+      "src": "../assets/game/chars/bros/scarf/run_3.png",
+      "name": "run_3",
+      "file": "run_3.png",
+      "ext": ".png",
+      "kind": "chars",
+      "kind_label": "角色",
+      "group": "bros",
+      "folder": "game/chars/bros/scarf",
+      "bytes": 22195,
+      "mtime": 1789476514,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4421,7 +4677,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 561333,
-      "mtime": 1789470846,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4437,7 +4693,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 560892,
-      "mtime": 1789470848,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4453,7 +4709,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 548518,
-      "mtime": 1789470849,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4469,7 +4725,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 568545,
-      "mtime": 1789470850,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4485,7 +4741,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 480545,
-      "mtime": 1789471604,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4501,7 +4757,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 579356,
-      "mtime": 1789471605,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4517,7 +4773,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 559806,
-      "mtime": 1789471606,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4533,7 +4789,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 544938,
-      "mtime": 1789471607,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4549,7 +4805,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 604101,
-      "mtime": 1789470857,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4565,7 +4821,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 566816,
-      "mtime": 1789470859,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4581,7 +4837,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 612183,
-      "mtime": 1789470860,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4597,7 +4853,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 584602,
-      "mtime": 1789470861,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4613,7 +4869,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 20809,
-      "mtime": 1789470846,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4629,7 +4885,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 20870,
-      "mtime": 1789470848,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4645,7 +4901,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 20506,
-      "mtime": 1789470849,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4661,7 +4917,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 20412,
-      "mtime": 1789470850,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4677,7 +4933,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 19091,
-      "mtime": 1789471604,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4693,7 +4949,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 20508,
-      "mtime": 1789471605,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4709,7 +4965,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 20636,
-      "mtime": 1789471606,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4725,7 +4981,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 21797,
-      "mtime": 1789471607,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4741,7 +4997,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 21757,
-      "mtime": 1789470857,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4757,7 +5013,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 20313,
-      "mtime": 1789470859,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4773,7 +5029,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 21735,
-      "mtime": 1789470860,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4789,7 +5045,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 20017,
-      "mtime": 1789470861,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4805,7 +5061,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 19876,
-      "mtime": 1789471608,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4821,7 +5077,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 21640,
-      "mtime": 1789471609,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4837,7 +5093,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 19833,
-      "mtime": 1789471611,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4853,7 +5109,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 21016,
-      "mtime": 1789471612,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4869,7 +5125,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 20540,
-      "mtime": 1789471613,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4885,7 +5141,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 21546,
-      "mtime": 1789471615,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4901,7 +5157,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 21184,
-      "mtime": 1789471616,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4917,7 +5173,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 21597,
-      "mtime": 1789471617,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4933,7 +5189,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 19954,
-      "mtime": 1789470852,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4949,7 +5205,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 20354,
-      "mtime": 1789470853,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4965,7 +5221,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 20485,
-      "mtime": 1789470855,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4981,7 +5237,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger/scarf",
       "bytes": 20209,
-      "mtime": 1789470856,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -4997,7 +5253,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 482828,
-      "mtime": 1789471608,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5013,7 +5269,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 497292,
-      "mtime": 1789471609,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5029,7 +5285,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 463460,
-      "mtime": 1789471611,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5045,7 +5301,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 464187,
-      "mtime": 1789471612,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5061,7 +5317,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 500569,
-      "mtime": 1789471613,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5077,7 +5333,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 499369,
-      "mtime": 1789471615,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5093,7 +5349,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 531645,
-      "mtime": 1789471616,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5109,7 +5365,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 521316,
-      "mtime": 1789471617,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5125,7 +5381,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 555376,
-      "mtime": 1789470852,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5141,7 +5397,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 543315,
-      "mtime": 1789470853,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5157,7 +5413,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 529168,
-      "mtime": 1789470854,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5173,7 +5429,7 @@
       "group": "老虎",
       "folder": "game/chars/tiger",
       "bytes": 525364,
-      "mtime": 1789470856,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5189,7 +5445,7 @@
       "group": "game/fx",
       "folder": "game/fx",
       "bytes": 178058,
-      "mtime": 1789469148,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5205,7 +5461,7 @@
       "group": "game/fx",
       "folder": "game/fx",
       "bytes": 1121227,
-      "mtime": 1789469148,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5221,7 +5477,7 @@
       "group": "game/fx",
       "folder": "game/fx",
       "bytes": 170489,
-      "mtime": 1789469148,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5237,7 +5493,7 @@
       "group": "game/fx",
       "folder": "game/fx",
       "bytes": 142815,
-      "mtime": 1789469148,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5253,7 +5509,7 @@
       "group": "game/fx",
       "folder": "game/fx",
       "bytes": 326070,
-      "mtime": 1789469147,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5269,7 +5525,7 @@
       "group": "game/fx",
       "folder": "game/fx",
       "bytes": 556539,
-      "mtime": 1789469146,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -5285,7 +5541,7 @@
       "group": "game/fx",
       "folder": "game/fx",
       "bytes": 309249,
-      "mtime": 1789469147,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -6405,7 +6661,7 @@
       "group": "ui/power_pip_off.png",
       "folder": "game/ui",
       "bytes": 170489,
-      "mtime": 1789469148,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -6421,7 +6677,7 @@
       "group": "ui/power_pip_on.png",
       "folder": "game/ui",
       "bytes": 142815,
-      "mtime": 1789469148,
+      "mtime": 1789471922,
       "w": 1024,
       "h": 1024,
       "audio": false
@@ -8653,6 +8909,58 @@
   ],
   "sequences": [
     {
+      "folder": "game/chars/bros",
+      "stem": "idle",
+      "kind": "chars",
+      "group": "bros",
+      "frames": [
+        "../assets/game/chars/bros/idle_0.png?t=1789476508",
+        "../assets/game/chars/bros/idle_1.png?t=1789476509",
+        "../assets/game/chars/bros/idle_2.png?t=1789476510",
+        "../assets/game/chars/bros/idle_3.png?t=1789476511"
+      ],
+      "count": 4
+    },
+    {
+      "folder": "game/chars/bros",
+      "stem": "run",
+      "kind": "chars",
+      "group": "bros",
+      "frames": [
+        "../assets/game/chars/bros/run_0.png?t=1789476512",
+        "../assets/game/chars/bros/run_1.png?t=1789476513",
+        "../assets/game/chars/bros/run_2.png?t=1789476513",
+        "../assets/game/chars/bros/run_3.png?t=1789476514"
+      ],
+      "count": 4
+    },
+    {
+      "folder": "game/chars/bros/scarf",
+      "stem": "idle",
+      "kind": "chars",
+      "group": "bros",
+      "frames": [
+        "../assets/game/chars/bros/scarf/idle_0.png?t=1789476508",
+        "../assets/game/chars/bros/scarf/idle_1.png?t=1789476509",
+        "../assets/game/chars/bros/scarf/idle_2.png?t=1789476510",
+        "../assets/game/chars/bros/scarf/idle_3.png?t=1789476511"
+      ],
+      "count": 4
+    },
+    {
+      "folder": "game/chars/bros/scarf",
+      "stem": "run",
+      "kind": "chars",
+      "group": "bros",
+      "frames": [
+        "../assets/game/chars/bros/scarf/run_0.png?t=1789476512",
+        "../assets/game/chars/bros/scarf/run_1.png?t=1789476513",
+        "../assets/game/chars/bros/scarf/run_2.png?t=1789476513",
+        "../assets/game/chars/bros/scarf/run_3.png?t=1789476514"
+      ],
+      "count": 4
+    },
+    {
       "folder": "game/chars/cow",
       "stem": "idle",
       "kind": "chars",
@@ -9441,10 +9749,10 @@
       "kind": "chars",
       "group": "老虎",
       "frames": [
-        "../assets/game/chars/tiger/idle_0.png?t=1789470846",
-        "../assets/game/chars/tiger/idle_1.png?t=1789470848",
-        "../assets/game/chars/tiger/idle_2.png?t=1789470849",
-        "../assets/game/chars/tiger/idle_3.png?t=1789470850"
+        "../assets/game/chars/tiger/idle_0.png?t=1789471922",
+        "../assets/game/chars/tiger/idle_1.png?t=1789471922",
+        "../assets/game/chars/tiger/idle_2.png?t=1789471922",
+        "../assets/game/chars/tiger/idle_3.png?t=1789471922"
       ],
       "count": 4
     },
@@ -9454,10 +9762,10 @@
       "kind": "chars",
       "group": "老虎",
       "frames": [
-        "../assets/game/chars/tiger/lunge_0.png?t=1789471604",
-        "../assets/game/chars/tiger/lunge_1.png?t=1789471605",
-        "../assets/game/chars/tiger/lunge_2.png?t=1789471606",
-        "../assets/game/chars/tiger/lunge_3.png?t=1789471607"
+        "../assets/game/chars/tiger/lunge_0.png?t=1789471922",
+        "../assets/game/chars/tiger/lunge_1.png?t=1789471922",
+        "../assets/game/chars/tiger/lunge_2.png?t=1789471922",
+        "../assets/game/chars/tiger/lunge_3.png?t=1789471922"
       ],
       "count": 4
     },
@@ -9467,10 +9775,10 @@
       "kind": "chars",
       "group": "老虎",
       "frames": [
-        "../assets/game/chars/tiger/run_0.png?t=1789470857",
-        "../assets/game/chars/tiger/run_1.png?t=1789470859",
-        "../assets/game/chars/tiger/run_2.png?t=1789470860",
-        "../assets/game/chars/tiger/run_3.png?t=1789470861"
+        "../assets/game/chars/tiger/run_0.png?t=1789471922",
+        "../assets/game/chars/tiger/run_1.png?t=1789471922",
+        "../assets/game/chars/tiger/run_2.png?t=1789471922",
+        "../assets/game/chars/tiger/run_3.png?t=1789471922"
       ],
       "count": 4
     },
@@ -9480,10 +9788,10 @@
       "kind": "chars",
       "group": "老虎",
       "frames": [
-        "../assets/game/chars/tiger/scarf/idle_0.png?t=1789470846",
-        "../assets/game/chars/tiger/scarf/idle_1.png?t=1789470848",
-        "../assets/game/chars/tiger/scarf/idle_2.png?t=1789470849",
-        "../assets/game/chars/tiger/scarf/idle_3.png?t=1789470850"
+        "../assets/game/chars/tiger/scarf/idle_0.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/idle_1.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/idle_2.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/idle_3.png?t=1789471922"
       ],
       "count": 4
     },
@@ -9493,10 +9801,10 @@
       "kind": "chars",
       "group": "老虎",
       "frames": [
-        "../assets/game/chars/tiger/scarf/lunge_0.png?t=1789471604",
-        "../assets/game/chars/tiger/scarf/lunge_1.png?t=1789471605",
-        "../assets/game/chars/tiger/scarf/lunge_2.png?t=1789471606",
-        "../assets/game/chars/tiger/scarf/lunge_3.png?t=1789471607"
+        "../assets/game/chars/tiger/scarf/lunge_0.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/lunge_1.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/lunge_2.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/lunge_3.png?t=1789471922"
       ],
       "count": 4
     },
@@ -9506,10 +9814,10 @@
       "kind": "chars",
       "group": "老虎",
       "frames": [
-        "../assets/game/chars/tiger/scarf/run_0.png?t=1789470857",
-        "../assets/game/chars/tiger/scarf/run_1.png?t=1789470859",
-        "../assets/game/chars/tiger/scarf/run_2.png?t=1789470860",
-        "../assets/game/chars/tiger/scarf/run_3.png?t=1789470861"
+        "../assets/game/chars/tiger/scarf/run_0.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/run_1.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/run_2.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/run_3.png?t=1789471922"
       ],
       "count": 4
     },
@@ -9519,10 +9827,10 @@
       "kind": "chars",
       "group": "老虎",
       "frames": [
-        "../assets/game/chars/tiger/scarf/throw_0.png?t=1789471608",
-        "../assets/game/chars/tiger/scarf/throw_1.png?t=1789471609",
-        "../assets/game/chars/tiger/scarf/throw_2.png?t=1789471611",
-        "../assets/game/chars/tiger/scarf/throw_3.png?t=1789471612"
+        "../assets/game/chars/tiger/scarf/throw_0.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/throw_1.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/throw_2.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/throw_3.png?t=1789471922"
       ],
       "count": 4
     },
@@ -9532,10 +9840,10 @@
       "kind": "chars",
       "group": "老虎",
       "frames": [
-        "../assets/game/chars/tiger/scarf/ult_0.png?t=1789471613",
-        "../assets/game/chars/tiger/scarf/ult_1.png?t=1789471615",
-        "../assets/game/chars/tiger/scarf/ult_2.png?t=1789471616",
-        "../assets/game/chars/tiger/scarf/ult_3.png?t=1789471617"
+        "../assets/game/chars/tiger/scarf/ult_0.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/ult_1.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/ult_2.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/ult_3.png?t=1789471922"
       ],
       "count": 4
     },
@@ -9545,10 +9853,10 @@
       "kind": "chars",
       "group": "老虎",
       "frames": [
-        "../assets/game/chars/tiger/scarf/walk_0.png?t=1789470852",
-        "../assets/game/chars/tiger/scarf/walk_1.png?t=1789470853",
-        "../assets/game/chars/tiger/scarf/walk_2.png?t=1789470855",
-        "../assets/game/chars/tiger/scarf/walk_3.png?t=1789470856"
+        "../assets/game/chars/tiger/scarf/walk_0.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/walk_1.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/walk_2.png?t=1789471922",
+        "../assets/game/chars/tiger/scarf/walk_3.png?t=1789471922"
       ],
       "count": 4
     },
@@ -9558,10 +9866,10 @@
       "kind": "chars",
       "group": "老虎",
       "frames": [
-        "../assets/game/chars/tiger/throw_0.png?t=1789471608",
-        "../assets/game/chars/tiger/throw_1.png?t=1789471609",
-        "../assets/game/chars/tiger/throw_2.png?t=1789471611",
-        "../assets/game/chars/tiger/throw_3.png?t=1789471612"
+        "../assets/game/chars/tiger/throw_0.png?t=1789471922",
+        "../assets/game/chars/tiger/throw_1.png?t=1789471922",
+        "../assets/game/chars/tiger/throw_2.png?t=1789471922",
+        "../assets/game/chars/tiger/throw_3.png?t=1789471922"
       ],
       "count": 4
     },
@@ -9571,10 +9879,10 @@
       "kind": "chars",
       "group": "老虎",
       "frames": [
-        "../assets/game/chars/tiger/ult_0.png?t=1789471613",
-        "../assets/game/chars/tiger/ult_1.png?t=1789471615",
-        "../assets/game/chars/tiger/ult_2.png?t=1789471616",
-        "../assets/game/chars/tiger/ult_3.png?t=1789471617"
+        "../assets/game/chars/tiger/ult_0.png?t=1789471922",
+        "../assets/game/chars/tiger/ult_1.png?t=1789471922",
+        "../assets/game/chars/tiger/ult_2.png?t=1789471922",
+        "../assets/game/chars/tiger/ult_3.png?t=1789471922"
       ],
       "count": 4
     },
@@ -9584,10 +9892,10 @@
       "kind": "chars",
       "group": "老虎",
       "frames": [
-        "../assets/game/chars/tiger/walk_0.png?t=1789470852",
-        "../assets/game/chars/tiger/walk_1.png?t=1789470853",
-        "../assets/game/chars/tiger/walk_2.png?t=1789470854",
-        "../assets/game/chars/tiger/walk_3.png?t=1789470856"
+        "../assets/game/chars/tiger/walk_0.png?t=1789471922",
+        "../assets/game/chars/tiger/walk_1.png?t=1789471922",
+        "../assets/game/chars/tiger/walk_2.png?t=1789471922",
+        "../assets/game/chars/tiger/walk_3.png?t=1789471922"
       ],
       "count": 4
     },

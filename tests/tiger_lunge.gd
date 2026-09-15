@@ -35,7 +35,7 @@ func run_checks() -> void:
 	emp.emp_state = rules.EmpState.CLOCKING
 	check(not match_node.is_lunge_target(emp), "clocking employee cannot be lunged")
 	emp.emp_state = rules.EmpState.WALK
-	check(match_node.start_lunge(boss), "E starts a short lunge")
+	check(match_node.start_lunge(boss), "space starts a short lunge")
 	check(boss.lunge_left > 0.0, "lunge timer is armed")
 	var hit = match_node.lunge_victim(boss, boss.global_position, emp.global_position)
 	check(hit == emp, "sweep or landing overlap counts as a catch")
@@ -56,9 +56,10 @@ func run_checks() -> void:
 	boss.lunge_stun = 0.0
 	boss.power_pips = 3
 	boss.global_position = emp.global_position + Vector2(-60, 0)
-	boss._facing = Vector2.RIGHT
+	emp.emp_state = rules.EmpState.WALK
+	check(not match_node.try_meeting(boss), "Q does nothing unless someone nearby is in review")
 	emp.emp_state = rules.EmpState.TALK
-	check(match_node.try_meeting(boss), "Q spends 3 pips and pulls a reviewing employee")
+	check(match_node.try_meeting(boss), "Q spends 3 pips and sends a nearby reviewing employee")
 	check(boss.power_pips == 0, "Q empties power")
 	check(emp.emp_state == rules.EmpState.MEETING, "Q sends them to the meeting room")
 	check(emp.global_position.distance_to(game.office.points["meeting"]) < 8.0, "Q teleports to meeting seat")

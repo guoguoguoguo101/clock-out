@@ -313,14 +313,14 @@ func spawn_actor(slot: int, pid: int, pname: String, x: float, y: float, st: int
 
 
 @rpc("authority", "unreliable")
-func sync_actor(slot: int, x: float, y: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, _occ: String, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0, slow: float = 0.0, rcd: float = 0.0, fcd: float = 0.0, power: int = 0, lstun: float = 0.0) -> void:
+func sync_actor(slot: int, x: float, y: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, _occ: String, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0, slow: float = 0.0, rcd: float = 0.0, fcd: float = 0.0, power: int = 0, lstun: float = 0.0, flyl: float = -1.0, flyc: float = -1.0) -> void:
 	if multiplayer.is_server():
 		return
 	if not actors.has(slot):
 		return
 	var actor := actors[slot] as Actor
 	var state := Rules.EmpState.CARRIED if actor.carried_by >= 0 else (Rules.EmpState.WALK if st == Rules.EmpState.CARRIED else st)
-	actor.apply_snapshot(x, y, state, h, e, vis, mcd, kcd, dcd, talk, rescue, bike, slow, rcd, fcd, power, lstun)
+	actor.apply_snapshot(x, y, state, h, e, vis, mcd, kcd, dcd, talk, rescue, bike, slow, rcd, fcd, power, lstun, flyl, flyc)
 
 
 @rpc("authority", "unreliable")
@@ -439,9 +439,7 @@ func is_hold_target(emp: Actor) -> bool:
 func is_meeting_target(emp: Actor) -> bool:
 	if emp == null or emp.kind != Rules.Kind.EMPLOYEE:
 		return false
-	if emp.emp_state in [Rules.EmpState.LEFT, Rules.EmpState.CLOCKING, Rules.EmpState.MEETING, Rules.EmpState.CARRIED]:
-		return false
-	return true
+	return emp.emp_state == Rules.EmpState.TALK
 
 
 func nearest_talk(from: Vector2, max_d: float) -> Actor:
@@ -614,6 +612,160 @@ func bike_event(slot: int, on: bool) -> void:
 		rider.say("电瓶车，走起！", 1.3)
 
 
+@rpc("authority", "call_local", "reliable")
+func fly_event(slot: int, dx: float, dy: float, on: bool) -> void:
+	var bird := actors.get(slot) as Actor
+	if bird == null:
+		return
+	if on:
+		var aim := Vector2(dx, dy)
+		if aim.length() < 0.12:
+			aim = bird._facing
+		if aim.length() < 0.12:
+			aim = Vector2.DOWN
+		bird.fly_dir = aim.normalized()
+		bird.fly_left = Rules.PELICAN_FLY_TIME
+		bird.collision_mask = 0
+		bird.z_index = 8
+		if bird.carry_visual and bird.carry_visual.has_method("burst_fly"):
+			bird.carry_visual.burst_fly()
+	else:
+		bird.fly_left = 0.0
+		bird.collision_mask = 1
+		bird.z_index = 0
+
+
+func try_bros(dog: Actor) -> bool:
+	if not multiplayer.is_server() or not playing or dog == null or dog.is_bot():
+		return false
+	if dog.skin != Rules.CharSkin.DOG:
+		return false
+	if dog.emp_state != Rules.EmpState.WALK or dog.stand_lock > 0.0 or dog.carried_by >= 0:
+		return false
+	if dog.pack_hp > 0:
+		return false
+	if dog.pack_cd > 0.05:
+		dog.say("兄弟还在路上 %.0fs" % ceilf(dog.pack_cd), 0.9)
+		return false
+	dog.pack_hp = Rules.DOG_PACK_COUNT
+	dog.pack_left = Rules.DOG_PACK_TIME
+	dog.pack_cd = Rules.DOG_PACK_CD
+	bros_event.rpc(dog.slot, dog.pack_hp, dog.pack_left, 0)
+	return true
+
+
+func clear_bros(dog: Actor) -> void:
+	if dog == null:
+		return
+	if dog.pack_hp <= 0 and dog.pack_left <= 0.0:
+		return
+	dog.pack_hp = 0
+	dog.pack_left = 0.0
+	bros_event.rpc(dog.slot, 0, 0.0, 2)
+
+
+func pop_bro(dog: Actor, at: Vector2) -> bool:
+	if dog == null or dog.pack_hp <= 0:
+		return false
+	dog.pack_hp -= 1
+	if dog.pack_hp <= 0:
+		dog.pack_left = 0.0
+	bros_event.rpc(dog.slot, dog.pack_hp, dog.pack_left, 1, at.x, at.y)
+	return true
+
+
+func pack_world_slots(dog: Actor) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	if dog == null or dog.pack_hp <= 0:
+		return out
+	if dog.pack_visual != null and dog.pack_visual.has_method("active") and dog.pack_visual.active():
+		for i in 3:
+			if dog.pack_visual.alive[i]:
+				out.append(dog.pack_visual.world_slot(i))
+		if not out.is_empty():
+			return out
+	var face := dog._facing.normalized() if dog._facing.length() > 0.12 else Vector2.DOWN
+	var side := Vector2(-face.y, face.x)
+	var extras: Array[Vector2] = [
+		dog.global_position - face * 10.0 + side * 28.0,
+		dog.global_position - face * 10.0 - side * 28.0,
+		dog.global_position - face * 30.0,
+	]
+	for i in mini(dog.pack_hp, extras.size()):
+		out.append(extras[i])
+	return out
+
+
+func hit_lunge_bro(boss: Actor, from: Vector2, to: Vector2) -> bool:
+	if not multiplayer.is_server():
+		return false
+	var best_dog: Actor = null
+	var best_pos := Vector2.ZERO
+	var best_t := 999.0
+	for a in actors.values():
+		var dog := a as Actor
+		if dog == null or dog.pack_hp <= 0:
+			continue
+		for p in pack_world_slots(dog):
+			if _dist_point_segment(p, from, to) > Rules.TIGER_LUNGE_RADIUS:
+				continue
+			var t := _along_segment(p, from, to)
+			if t < best_t:
+				best_t = t
+				best_dog = dog
+				best_pos = p
+	if best_dog == null:
+		return false
+	pop_bro(best_dog, best_pos)
+	boss.lunge_left = 0.0
+	boss.lunge_hit = true
+	boss.lunge_stun = Rules.DOG_PACK_STUN
+	spawn_fx(Rules.FX_CLAW, best_pos, 0.5, 0.11, -18.0)
+	lunge_event.rpc(boss.slot, boss.dash_dir.x, boss.dash_dir.y, false)
+	return true
+
+
+func hit_report_bro(pos: Vector2) -> bool:
+	if not multiplayer.is_server():
+		return false
+	var best_dog: Actor = null
+	var best_pos := Vector2.ZERO
+	var best_d := Rules.REPORT_HIT_RADIUS
+	for a in actors.values():
+		var dog := a as Actor
+		if dog == null or dog.pack_hp <= 0:
+			continue
+		for p in pack_world_slots(dog):
+			var d := pos.distance_to(p)
+			if d < best_d:
+				best_d = d
+				best_dog = dog
+				best_pos = p
+	if best_dog == null:
+		return false
+	pop_bro(best_dog, best_pos)
+	return true
+
+
+@rpc("authority", "call_local", "reliable")
+func bros_event(slot: int, hp: int, left: float, kind: int, x: float = 0.0, y: float = 0.0) -> void:
+	var dog := actors.get(slot) as Actor
+	if dog == null:
+		return
+	dog.pack_hp = hp
+	dog.pack_left = left
+	if kind == 0:
+		dog.pack_cd = maxf(dog.pack_cd, Rules.DOG_PACK_CD)
+		if dog.pack_visual and dog.pack_visual.has_method("summon"):
+			dog.pack_visual.summon()
+		dog.shout_bros()
+	elif kind == 1:
+		if dog.pack_visual and dog.pack_visual.has_method("pop_at"):
+			dog.pack_visual.pop_at(Vector2(x, y))
+	elif dog.pack_visual and dog.pack_visual.has_method("dismiss"):
+		dog.pack_visual.dismiss()
+
+
 func try_carry(carrier: Actor) -> bool:
 	if not multiplayer.is_server() or not playing or carrier.is_bot():
 		return false
@@ -627,6 +779,7 @@ func try_carry(carrier: Actor) -> bool:
 	passenger.clear_rescue()
 	if passenger.bike_left > 0.0:
 		clear_bike(passenger)
+	clear_bros(passenger)
 	carrier.clear_rescue()
 	carrier._facing.x = 1.0 if passenger.global_position.x >= carrier.global_position.x else -1.0
 	carry_event.rpc(carrier.slot, passenger.slot, true, passenger.global_position, false, carrier._facing.x)
@@ -799,7 +952,7 @@ func try_meeting(boss: Actor) -> bool:
 		return false
 	var best := meeting_target(boss)
 	if best == null:
-		boss.say("正前方没人可拉", 0.8)
+		boss.say("附近没有正在约谈的人", 0.8)
 		return false
 	boss.power_pips = 0
 	spawn_fx(Rules.FX_MEETING, boss.global_position, 0.9, 0.16, -40.0)
@@ -813,22 +966,14 @@ func try_meeting(boss: Actor) -> bool:
 
 
 func meeting_target(boss: Actor) -> Actor:
-	var aim := boss.facing_dir()
-	if aim.length() < 0.12:
-		aim = Vector2.DOWN
-	aim = aim.normalized()
-	var half := deg_to_rad(Rules.TIGER_MEETING_CONE)
 	var best: Actor = null
 	var best_d := Rules.TIGER_MEETING_RANGE
 	for a in actors.values():
 		var e := a as Actor
 		if not is_meeting_target(e):
 			continue
-		var delta: Vector2 = e.global_position - boss.global_position
-		var d := delta.length()
-		if d > best_d or d < 8.0:
-			continue
-		if absf(aim.angle_to(delta)) > half:
+		var d: float = e.global_position.distance_to(boss.global_position)
+		if d > best_d:
 			continue
 		if not _can_see(boss.global_position, e.global_position):
 			continue
@@ -965,6 +1110,9 @@ func end_report(id: int, slot: int) -> void:
 		return
 	var paper = reports[id]
 	if paper == null or not paper.flying:
+		return
+	if slot == -2:
+		finish_report.rpc(id, 99)
 		return
 	if slot >= 0:
 		var emp: Actor = actors.get(slot) as Actor
@@ -1752,6 +1900,15 @@ func apply_go_event(ev: Dictionary) -> void:
 		"intranet_end":
 			intranet_down = false
 			random_event_ended.emit("intranet_down")
+		"bros":
+			bros_event(
+				int(ev.get("slot", -1)),
+				int(ev.get("hp", 0)),
+				float(ev.get("left", 0.0)),
+				int(ev.get("kind", 2)),
+				float(ev.get("x", 0.0)),
+				float(ev.get("y", 0.0))
+			)
 
 
 func _ingest_go_actor(item: Dictionary) -> void:
@@ -1788,6 +1945,18 @@ func _ingest_go_actor(item: Dictionary) -> void:
 	actor.carrying_slot = int(item.get("carrying", -1))
 	actor.carried_by = int(item.get("carried_by", -1))
 	actor.stand_lock = float(item.get("stand_lock", 0.0))
+	actor.fly_left = float(item.get("fly", 0.0))
+	actor.fly_cd = float(item.get("flycd", actor.fly_cd))
+	var fly_dx := float(item.get("fly_dx", 0.0))
+	var fly_dy := float(item.get("fly_dy", 0.0))
+	if Vector2(fly_dx, fly_dy).length() > 0.12:
+		actor.fly_dir = Vector2(fly_dx, fly_dy).normalized()
+	if actor.fly_left > 0.0:
+		actor.collision_mask = 0
+		actor.z_index = 8
+	else:
+		actor.collision_mask = 1
+		actor.z_index = 0
 	var fx := float(item.get("facing_x", 0.0))
 	if abs(fx) > 0.01:
 		actor._facing = Vector2(fx, actor._facing.y)

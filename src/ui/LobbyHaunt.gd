@@ -78,6 +78,15 @@ var _monitor_line := 0
 var scenery: Array[TextureRect] = []
 var office_actors: Array[Sprite2D] = []
 var rain_streaks: Array[ColorRect] = []
+var stamp: Control
+var pointer_focus := "idle"
+var start_pulse := 0.0
+var stamp_flash := 0.0
+var scan_boost := 0.0
+var _click_id := ""
+var _click_t := 0.0
+var _tiger_cd := 0.0
+var _delay_boost_t := 0.0
 
 
 func bind(nodes: Dictionary) -> void:
@@ -94,6 +103,7 @@ func bind(nodes: Dictionary) -> void:
 	rec = nodes.get("rec")
 	lcd = nodes.get("lcd")
 	led = nodes.get("led")
+	stamp = nodes.get("stamp")
 	var supplied_layers: Variant = nodes.get("layers", [])
 	if supplied_layers is Array:
 		for item in supplied_layers:
@@ -399,9 +409,44 @@ func _set_txt(n: Control, s: String) -> void:
 	n.set("text", s)
 
 
+func set_pointer_focus(id: String) -> void:
+	pointer_focus = id
+
+
+func trigger_pointer(id: String) -> bool:
+	_click_id = id
+	_click_t = 0.8
+	match id:
+		"tiger":
+			if _tiger_cd > 0.0:
+				return false
+			_tiger_cd = 12.0
+			_begin_named_event(3, 5.4)
+			if mood:
+				_set_txt(mood, "请勿与玻璃后的同事对视。")
+			return true
+		"exit":
+			_begin_named_event(2, 5.2)
+			return true
+		"punch":
+			start_pulse = 0.9
+			stamp_flash = 0.5
+			return true
+		"cam":
+			scan_boost = 0.6
+			_delay_boost_t = 0.9
+			_glitch = maxf(_glitch, 0.42)
+			return true
+	return false
+
+
 func _begin_office_event() -> void:
-	_event_kind = randi() % 4
-	_event_left = randf_range(4.0, 5.8)
+	_begin_named_event(randi() % 4, randf_range(4.0, 5.8))
+
+
+func _begin_named_event(kind: int, duration: float) -> void:
+	_event_kind = kind
+	_event_left = duration
 	_event_wait = randf_range(16.0, 29.0)
 	match _event_kind:
 		0:
@@ -452,8 +497,10 @@ func _process(delta: float) -> void:
 		return
 	_t += delta
 	_mood_t += delta
+	_tick_pointer(delta)
 	_update_office_event(delta)
 	_normalise_office_signals()
+	_apply_pointer_signals()
 	_glitch = maxf(0.0, _glitch - delta * 4.4)
 	if randf() < 0.0025:
 		_glitch = randf_range(0.58, 0.88)
@@ -473,14 +520,15 @@ func _process(delta: float) -> void:
 		dim.color.a = 0.38 + 0.035 * sin(_t * 1.8)
 	if cam:
 		cam.pivot_offset = cam.size * 0.5
-		cam.rotation = sin(_t * 0.55) * 0.025
-		cam.modulate = Color(0.88, 0.95, 1.0, 0.92)
+		var cam_hot: bool = _focus_is("cam")
+		cam.rotation = sin(_t * (1.4 if cam_hot else 0.55)) * (0.05 if cam_hot else 0.025)
+		cam.modulate = Color(1.0, 1.04, 1.0, 1.0) if cam_hot else Color(0.88, 0.95, 1.0, 0.92)
 	if clock:
 		clock.rotation = sin(_t * 0.9) * 0.012 + (0.04 if _glitch > 0.78 else 0.0)
 		clock.modulate = Color(1.04, 0.98, 0.96) if _glitch > 0.82 else Color.WHITE
 	if punch:
-		punch.rotation = sin(_t * 1.4) * 0.04
-		punch.modulate = Color(0.96, 0.98, 1.0)
+		punch.rotation = sin(_t * (2.2 if _punchy() else 1.4)) * 0.04
+		punch.modulate = Color(1.05, 1.08, 1.04) if _punchy() else Color(0.96, 0.98, 1.0)
 	for i in office_lights.size():
 		var light := office_lights[i]
 		light.color.a = 0.07 + 0.11 * maxf(0.0, sin(_t * (0.7 + float(i) * 0.11) + float(i)))
@@ -508,8 +556,10 @@ func _process(delta: float) -> void:
 			actor.frame = 0
 		if i == 3 and fmod(_t, 13.0) < 9.0:
 			actor.frame = 0
+		if i < 4 and pointer_focus == "verify":
+			actor.modulate.a = lerpf(actor.modulate.a, 0.94, delta * 6.0)
 		if i == 4:
-			var fifth_visible := _event_left > 0.0 and (_event_kind == 0 or _event_kind == 3)
+			var fifth_visible: bool = _focus_is("tiger") or (_event_left > 0.0 and (_event_kind == 0 or _event_kind == 3))
 			actor.modulate.a = lerpf(actor.modulate.a, 0.42 if fifth_visible else 0.0, delta * 1.8)
 			if frames is Array and not (frames as Array).is_empty():
 				actor.texture = (frames as Array)[int(_t * 0.55) % (frames as Array).size()]
@@ -525,16 +575,25 @@ func _process(delta: float) -> void:
 		monitor_panel.modulate = Color(0.96 + 0.04 * sin(_t * 2.2), 1.0, 1.0, 1.0)
 	if access_panel:
 		access_panel.modulate.a = 0.82 + 0.18 * (0.5 + 0.5 * sin(_t * 1.3))
+		if _focus_is("exit"):
+			access_panel.modulate = Color(1.08, 1.12, 1.06, 1.0)
 	if led:
-		led.color.a = 0.2 + 0.8 * (0.5 + 0.5 * sin(_t * 11.0))
-		led.scale = Vector2.ONE * (1.0 + 0.35 * sin(_t * 11.0))
+		var led_rate := 22.0 if _punchy() else 11.0
+		led.color.a = 0.2 + 0.8 * (0.5 + 0.5 * sin(_t * led_rate))
+		led.scale = Vector2.ONE * (1.0 + (0.55 if _punchy() else 0.35) * sin(_t * led_rate))
 	if rec:
 		var sec := int(_t) % 60
 		_set_txt(rec, "REC  ●  CAM-04  17:59:%02d" % sec)
-		rec.modulate.a = 0.45 + 0.55 * (1.0 if sin(_t * 6.0) > 0.0 else 0.0)
+		var rec_rate := 12.0 if _focus_is("cam") else 6.0
+		rec.modulate.a = 0.45 + 0.55 * (1.0 if sin(_t * rec_rate) > 0.0 else 0.0)
 	if lcd:
-		var ticks := ["17:59", "17:59", "18:00", "18:00", "18:01"]
-		_set_txt(lcd, ticks[int(_t * 1.8) % ticks.size()])
+		if _punchy():
+			_set_txt(lcd, "18:00")
+		else:
+			var ticks := ["17:59", "17:59", "18:00", "18:00", "18:01"]
+			_set_txt(lcd, ticks[int(_t * 1.8) % ticks.size()])
+	if stamp:
+		stamp.modulate = Color(1.25, 1.4, 1.28) if stamp_flash > 0.0 else Color.WHITE
 	if title:
 		_set_txt(title, _title_base)
 		title.rotation = sin(_t * 1.7) * 0.006
@@ -554,7 +613,7 @@ func _process(delta: float) -> void:
 		if lobby:
 			ghost.position = Vector2(lobby.size.x * 0.38, lobby.size.y * 0.18)
 			ghost.size = Vector2(lobby.size.x * 0.16, lobby.size.y * 0.5)
-		var show := _event_left > 0.0 and (_event_kind == 0 or _event_kind == 3)
+		var show: bool = _focus_is("tiger") or (_event_left > 0.0 and (_event_kind == 0 or _event_kind == 3))
 		ghost.modulate.a = lerpf(ghost.modulate.a, 0.24 if show else 0.0, delta * 2.6)
 		ghost.position.x += sin(_t * 1.1) * delta * 5.0
 		if show:
@@ -570,16 +629,63 @@ func _process(delta: float) -> void:
 	if drip:
 		drip.offset_bottom = 4.0 + abs(sin(_t * 0.35)) * 6.0
 	if static_fx:
-		static_fx.color.a = _glitch * 0.06
+		static_fx.color.a = _glitch * 0.06 + scan_boost * 0.08
 	for b in tree.get_nodes_in_group("haunt_btn"):
 		if not (b is Control):
 			continue
 		var c := b as Control
 		c.pivot_offset = c.size * 0.5
 		c.rotation = 0.0
-		c.scale = Vector2.ONE
 		var cap := c.get_node_or_null("HauntCap")
 		var base := str(c.get_meta("haunt_base", c.get("text")))
+		var hot: bool = c.is_hovered() or (base == "打卡上班" and start_pulse > 0.0)
+		c.scale = Vector2.ONE * (1.03 if hot else 1.0)
 		if cap:
-			var alts: Variant = BTN_ALTS.get(base, [base])
-			cap.set("text", base)
+			var shown := base
+			if hot and base == "打卡上班":
+				shown = "插入工卡"
+			elif hot and base == "接入监控":
+				shown = "正在接入"
+			elif hot and base == "身份核验":
+				shown = "人像比对"
+			cap.set("text", shown)
+		var scan := c.get_node_or_null("PointerScan") as ColorRect
+		if scan == null:
+			scan = ColorRect.new()
+			scan.name = "PointerScan"
+			scan.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			c.add_child(scan)
+		scan.size = Vector2(c.size.x, 2)
+		scan.position = Vector2(0, fmod(_t * 52.0, maxf(c.size.y, 8.0)))
+		scan.color = Color(0.62, 0.94, 0.82, 0.30 if hot else 0.0)
+
+
+func _tick_pointer(delta: float) -> void:
+	_tiger_cd = maxf(0.0, _tiger_cd - delta)
+	_click_t = maxf(0.0, _click_t - delta)
+	start_pulse = maxf(0.0, start_pulse - delta)
+	stamp_flash = maxf(0.0, stamp_flash - delta)
+	scan_boost = maxf(0.0, scan_boost - delta)
+	_delay_boost_t = maxf(0.0, _delay_boost_t - delta)
+	if _click_t <= 0.0:
+		_click_id = ""
+
+
+func _focus_is(id: String) -> bool:
+	return pointer_focus == id or _click_id == id
+
+
+func _punchy() -> bool:
+	return _focus_is("punch") or _focus_is("start") or start_pulse > 0.0
+
+
+func _apply_pointer_signals() -> void:
+	if _focus_is("cam"):
+		if _delay_boost_t > 0.0:
+			_set_txt(monitor_feed, "正在对焦…\n考勤同步：正常\n画面延迟：1.4s")
+		else:
+			_set_txt(monitor_feed, "正在对焦…\n考勤同步：正常\n画面延迟：0.08s")
+	elif _focus_is("join"):
+		_set_txt(monitor_feed, "正在接入…\n会话通道：打开\n画面延迟：0.2s")
+	if _focus_is("exit") and _event_left <= 0.0:
+		_set_txt(access_state, "门禁 A 区  ·  18:00 后已关闭")

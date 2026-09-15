@@ -156,7 +156,7 @@ func reset_match() -> void:
 	_send({"type": "reset"})
 
 
-func send_input(dx: float, dy: float, interact: bool, slack: bool, meeting: bool, kpi: bool, dash: bool) -> void:
+func send_input(dx: float, dy: float, interact: bool, slack: bool, meeting: bool, kpi: bool, dash: bool, fly := false, incident := false, blame := false) -> void:
 	_send({
 		"type": "input",
 		"dx": dx,
@@ -166,6 +166,9 @@ func send_input(dx: float, dy: float, interact: bool, slack: bool, meeting: bool
 		"meeting": meeting,
 		"kpi": kpi,
 		"dash": dash,
+		"fly": fly,
+		"incident": incident,
+		"blame": blame,
 	})
 
 

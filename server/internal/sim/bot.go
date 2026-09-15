@@ -25,6 +25,13 @@ func (b *BossBot) Tick(dt float64) {
 		}
 		return
 	}
+	if a.PowerPips >= TigerPowerMax && b.Wait <= 0 {
+		if mark := b.Match.MeetingTarget(a); mark != nil {
+			a.WantMeeting = true
+			b.Wait = 1.2
+			return
+		}
+	}
 	if talk := b.talkHere(); talk != nil {
 		if b.Watching {
 			a.In = Vec{}
@@ -47,10 +54,6 @@ func (b *BossBot) Tick(dt float64) {
 		a.In = d.Normalized()
 		if d.Len() < CatchRange+8 {
 			a.WantInteract = true
-		}
-		if b.Wait <= 0 && d.Len() < 260 {
-			a.WantMeeting = true
-			b.Wait = 4
 		}
 		return
 	}

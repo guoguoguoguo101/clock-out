@@ -85,6 +85,9 @@ func _fly(delta: float) -> void:
 		if Match.paper_blocked(prev, nxt) or age >= Rules.REPORT_LIFE:
 			Match.end_report(report_id, -1)
 			return
+		if Match.hit_report_bro(nxt):
+			Match.end_report(report_id, -2)
+			return
 		var victim: Actor = Match.report_victim(nxt)
 		if victim != null:
 			Match.end_report(report_id, victim.slot)

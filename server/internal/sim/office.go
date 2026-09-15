@@ -187,6 +187,51 @@ func (o *Office) MoveSlide(from Vec, delta Vec, radius float64) Vec {
 	return from
 }
 
+func (o *Office) ClampPos(p Vec) Vec {
+	if p.X < 48 {
+		p.X = 48
+	}
+	if p.Y < 48 {
+		p.Y = 48
+	}
+	if p.X > MapW-48 {
+		p.X = MapW - 48
+	}
+	if p.Y > MapH-48 {
+		p.Y = MapH - 48
+	}
+	return p
+}
+
+func (o *Office) ResolveLanding(p Vec, back Vec, radius float64) Vec {
+	p = o.ClampPos(p)
+	if !o.CircleHits(p, radius) {
+		return p
+	}
+	if back.Len() > 0.01 {
+		dir := back.Normalized()
+		for i := 1; i <= 40; i++ {
+			cand := o.ClampPos(p.Add(dir.Mul(float64(i) * 8)))
+			if !o.CircleHits(cand, radius) {
+				return cand
+			}
+		}
+	}
+	for r := 12.0; r <= 160.0; r += 12.0 {
+		for a := 0; a < 12; a++ {
+			ang := float64(a) * math.Pi * 2 / 12
+			cand := o.ClampPos(Vec{p.X + math.Cos(ang)*r, p.Y + math.Sin(ang)*r})
+			if !o.CircleHits(cand, radius) {
+				return cand
+			}
+		}
+	}
+	if c, ok := o.Points["corridor"]; ok {
+		return c
+	}
+	return p
+}
+
 func (o *Office) CanSee(from, to Vec) bool {
 	for _, r := range o.Solids() {
 		if SegmentHitsRect(from, to, r) {

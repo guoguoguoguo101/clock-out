@@ -7,8 +7,8 @@ import (
 
 type Input struct {
 	DX, DY                           float64
-	Interact, Slack, Meeting, KPI, Dash bool
-	Incident, Blame bool
+	Interact, Slack, Meeting, KPI, Dash, Fly bool
+	Incident, Blame                          bool
 }
 
 type Actor struct {
@@ -46,6 +46,9 @@ type Actor struct {
 	KPICD       float64
 	DashCD      float64
 	DashLeft    float64
+	FlyCD       float64
+	FlyLeft     float64
+	FlyDir      Vec
 	LungeLeft   float64
 	LungeStun   float64
 	LungeHit    bool
@@ -57,8 +60,8 @@ type Actor struct {
 	FixProgress float64
 	BlamedOnce  bool
 	In          Vec
-	WantInteract, WantSlack, WantMeeting, WantKPI, WantDash bool
-	WantIncident, WantBlame bool
+	WantInteract, WantSlack, WantMeeting, WantKPI, WantDash, WantFly bool
+	WantIncident, WantBlame                                          bool
 }
 
 func NewActor(slot, peer int, name string, office *Office) *Actor {
@@ -107,6 +110,9 @@ func (a *Actor) ApplyInput(in Input) {
 	if in.Blame {
 		a.WantBlame = true
 	}
+	if in.Fly {
+		a.WantFly = true
+	}
 }
 
 func (a *Actor) Tick(m *Match, dt float64) {
@@ -126,6 +132,7 @@ func (a *Actor) Tick(m *Match, dt float64) {
 	a.IncidentCD = maxf(0, a.IncidentCD-dt)
 	a.DashCD = maxf(0, a.DashCD-dt)
 	a.DashLeft = maxf(0, a.DashLeft-dt)
+	a.FlyCD = maxf(0, a.FlyCD-dt)
 	a.LungeStun = maxf(0, a.LungeStun-dt)
 	a.KPIFlash = maxf(0, a.KPIFlash-dt)
 	if a.Kind == KindBoss {
@@ -140,6 +147,7 @@ func (a *Actor) Tick(m *Match, dt float64) {
 	a.WantDash = false
 	a.WantIncident = false
 	a.WantBlame = false
+	a.WantFly = false
 }
 
 func (a *Actor) employeeTick(m *Match, dt float64) {
@@ -147,10 +155,21 @@ func (a *Actor) employeeTick(m *Match, dt float64) {
 		if c := m.Actors[a.CarriedBy]; c != nil {
 			a.Pos = c.Pos
 			a.Vel = Vec{}
-			if a.WantInteract && !a.IsBot() && c.CarryWindup <= 0 {
+			if a.WantInteract && !a.IsBot() && c.CarryWindup <= 0 && c.FlyLeft <= 0 {
 				m.ReleaseCarry(c, false)
 			}
 		}
+		return
+	}
+	a.tryStartFly(m)
+	if a.FlyLeft > 0 {
+		if a.Carrying >= 0 {
+			a.CarryWindup = maxf(0, a.CarryWindup-dt)
+			if a.State != StateWalk && a.State != StateClocking {
+				m.ReleaseCarry(a, true)
+			}
+		}
+		a.tickFly(m, dt)
 		return
 	}
 	if a.Carrying >= 0 {
@@ -386,6 +405,7 @@ func (a *Actor) beginClocking(m *Match) {
 }
 
 func (a *Actor) clockOut(m *Match) {
+	a.endFly(m)
 	a.dismountBike(m)
 	a.State = StateLeft
 	a.Visible = false
@@ -401,6 +421,7 @@ func (a *Actor) tickTalk(m *Match, dt float64) {
 }
 
 func (a *Actor) BeginTalk(m *Match) {
+	a.endFly(m)
 	m.ReleaseActorCarry(a, true)
 	a.dismountBike(m)
 	a.standUp(m)
@@ -446,6 +467,7 @@ func (a *Actor) ApplyMeetingFail(m *Match) {
 }
 
 func (a *Actor) SendToMeeting(m *Match, seconds float64, pos Vec) {
+	a.endFly(m)
 	m.ReleaseActorCarry(a, true)
 	if a.State == StateClocking || a.State == StateLeft {
 		return
@@ -522,6 +544,60 @@ func (a *Actor) bossTick(m *Match, dt float64) {
 
 func (a *Actor) slide(m *Match, dt float64) {
 	a.Pos = m.Office.MoveSlide(a.Pos, a.Vel.Mul(dt), ActorRadius)
+}
+
+func (a *Actor) tryStartFly(m *Match) bool {
+	if !a.WantFly || a.IsBot() || a.Skin != SkinPelican {
+		return false
+	}
+	if a.FlyLeft > 0 {
+		return false
+	}
+	if a.FlyCD > 0.05 || a.BikeLeft > 0 || a.CarriedBy >= 0 || a.StandLock > 0 {
+		return false
+	}
+	if a.RescueLeft > 0 {
+		return false
+	}
+	if a.State != StateWalk && a.State != StateClocking {
+		return false
+	}
+	dir := a.In
+	if dir.Len() < 0.12 {
+		dir = a.Facing
+	}
+	if dir.Len() < 0.12 {
+		dir = Vec{0, 1}
+	}
+	a.FlyDir = dir.Normalized()
+	a.FlyLeft = PelicanFlyTime
+	a.FlyCD = PelicanFlyCD
+	a.DashLeft = 0
+	a.ClearRescue()
+	return true
+}
+
+func (a *Actor) tickFly(m *Match, dt float64) {
+	a.Vel = a.FlyDir.Mul(PelicanFlySpeed)
+	a.Pos = m.Office.ClampPos(a.Pos.Add(a.FlyDir.Mul(PelicanFlySpeed * dt)))
+	a.Facing = a.FlyDir
+	a.FlyLeft -= dt
+	if a.FlyLeft <= 0 {
+		a.landFromFly(m)
+	}
+}
+
+func (a *Actor) endFly(m *Match) {
+	if a.FlyLeft <= 0 {
+		return
+	}
+	a.landFromFly(m)
+}
+
+func (a *Actor) landFromFly(m *Match) {
+	a.FlyLeft = 0
+	a.Vel = Vec{}
+	a.Pos = m.Office.ResolveLanding(a.Pos, a.FlyDir.Mul(-1), ActorRadius)
 }
 
 func (a *Actor) moveTowards(m *Match, target Vec, speed, dt float64) {

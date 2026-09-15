@@ -527,30 +527,15 @@ func (m *Match) CompleteRescue(rescuer, vic *Actor) {
 	m.emit(protocol.Event{Kind: "rescue", Slot: vic.Slot, BySlot: rescuer.Slot})
 }
 
-func (m *Match) TryMeeting(boss *Actor) bool {
-	if boss.PowerPips < TigerPowerMax || boss.LungeLeft > 0 || boss.LungeStun > 0 {
-		return false
-	}
-	aim := boss.Facing
-	if aim.Len() < 0.12 {
-		aim = Vec{0, 1}
-	}
-	aim = aim.Normalized()
+func (m *Match) MeetingTarget(boss *Actor) *Actor {
 	var best *Actor
 	bestD := MeetingRange
 	for _, e := range m.Actors {
-		if e.Kind != KindEmployee {
+		if e.Kind != KindEmployee || e.State != StateTalk {
 			continue
 		}
-		if e.State == StateLeft || e.State == StateClocking || e.State == StateMeeting || e.State == StateCarried {
-			continue
-		}
-		delta := e.Pos.Sub(boss.Pos)
-		d := delta.Len()
-		if d > bestD || d < 8 {
-			continue
-		}
-		if aim.Dot(delta.Normalized()) < 0.5736 {
+		d := e.Pos.Dist(boss.Pos)
+		if d > bestD {
 			continue
 		}
 		if !m.Office.CanSee(boss.Pos, e.Pos) {
@@ -559,6 +544,14 @@ func (m *Match) TryMeeting(boss *Actor) bool {
 		best = e
 		bestD = d
 	}
+	return best
+}
+
+func (m *Match) TryMeeting(boss *Actor) bool {
+	if boss.PowerPips < TigerPowerMax || boss.LungeLeft > 0 || boss.LungeStun > 0 {
+		return false
+	}
+	best := m.MeetingTarget(boss)
 	if best == nil {
 		return false
 	}
@@ -831,6 +824,7 @@ func (m *Match) Snapshot() protocol.Snapshot {
 			MeetingCD: a.MeetingCD, KPICD: a.KPICD, DashCD: a.DashCD, Occupy: a.OccupyID,
 			Talk: a.TalkProg, Rescue: a.RescueLeft, Bike: a.BikeLeft,
 			Carrying: a.Carrying, CarriedBy: a.CarriedBy, FacingX: a.Facing.X, StandLock: a.StandLock,
+			Fly: a.FlyLeft, FlyCD: a.FlyCD, FlyDX: a.FlyDir.X, FlyDY: a.FlyDir.Y,
 		})
 	}
 	return snap

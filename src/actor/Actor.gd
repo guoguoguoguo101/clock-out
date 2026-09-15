@@ -63,6 +63,10 @@ var carry_windup := 0.0
 var carry_recovery := 0.0
 var carry_saved_talk := -1.0
 var carry_visual: Node2D
+var pack_left := 0.0
+var pack_cd := 0.0
+var pack_hp := 0
+var pack_visual: Node2D
 var landing_left := 0.0
 var bike_left := 0.0
 var bike_cd := 0.0
@@ -83,6 +87,9 @@ var kpi_cd := 0.0
 var dash_cd := 0.0
 var dash_left := 0.0
 var dash_dir := Vector2.DOWN
+var fly_cd := 0.0
+var fly_left := 0.0
+var fly_dir := Vector2.DOWN
 var lunge_left := 0.0
 var lunge_stun := 0.0
 var lunge_hit := false
@@ -112,6 +119,7 @@ var want_report := false
 var want_fan := false
 var want_incident := false
 var want_blame := false
+var want_fly := false
 
 var _sync_acc := 0.0
 var _remote_pos := Vector2.ZERO
@@ -162,12 +170,16 @@ func nearby_action() -> String:
 		return _boss_nearby_action()
 	if carried_by >= 0:
 		return "顺风嘴 · E 主动下来"
+	if fly_left > 0.0:
+		return "飞走中 · 穿墙"
 	if carrying_slot >= 0:
-		return "接活水 · E 放下同事（%.0fs）" % ceilf(carry_left)
+		if fly_cd > 0.05:
+			return "接活水 · E 放下同事（%.0fs）    飞走冷却 %.0fs" % [ceilf(carry_left), ceilf(fly_cd)]
+		return "接活水 · E 放下同事（%.0fs）    空格带人飞走" % ceilf(carry_left)
 	if skin == Rules.CharSkin.PELICAN and emp_state == Rules.EmpState.WALK and stand_lock <= 0.0:
 		var passenger: Actor = Match.nearest_carry_target(self)
 		if passenger != null:
-			return "E 接活水「%s」" % passenger.display_name
+			return "E 接活水「%s」    空格飞走" % passenger.display_name
 	if emp_state == Rules.EmpState.TALK:
 		return "复盘中 · 同事 E 捞人 2.5 秒"
 	if rescue_left > 0.0:
@@ -249,10 +261,20 @@ func nearby_action() -> String:
 		if trade_cd > 0.05:
 			return "内网交易冷却 %.0fs" % ceilf(trade_cd)
 		return "E 炒股 · 赚了加精力"
+	if skin == Rules.CharSkin.PELICAN and emp_state == Rules.EmpState.WALK:
+		if fly_cd > 0.05:
+			return "空格飞走冷却 %.0fs    Shift 冲刺" % ceilf(fly_cd)
+		return "空格飞走（穿墙，可带人）    Shift 冲刺"
 	if skin == Rules.CharSkin.KANGAROO and emp_state == Rules.EmpState.WALK:
 		if bike_cd > 0.05:
 			return "电瓶车冷却 %.0fs" % ceilf(bike_cd)
 		return "F 骑电瓶车    下车后才能交互"
+	if skin == Rules.CharSkin.DOG and emp_state == Rules.EmpState.WALK:
+		if pack_hp > 0:
+			return "兄弟跟着 · 还能挡 %d 下" % pack_hp
+		if pack_cd > 0.05:
+			return "E 召唤兄弟冷却 %.0fs" % ceilf(pack_cd)
+		return "E 喊兄弟（挡短扑/周报 8秒）"
 	return ""
 
 
@@ -265,19 +287,19 @@ func _boss_nearby_action() -> String:
 		var mark: Actor = Match.meeting_target(self)
 		if mark != null:
 			return "Q 开会 · 拉「%s」进会议室 30 秒" % mark.display_name
-		return "Q 开会就绪 · 面向员工"
+		return "Q 开会就绪 · 附近要有正在约谈的人"
 	for a in Match.actors.values():
 		var e := a as Actor
 		if not Match.is_lunge_target(e):
 			continue
 		if global_position.distance_to(e.global_position) <= 140.0:
-			return "E 短扑抓人    势力 %d/3" % power_pips
+			return "空格短扑抓人    势力 %d/3" % power_pips
 	var map := office()
 	if map:
 		var door = map.nearest_door(global_position, Rules.DOOR_RANGE)
 		if door != null:
 			return door.prompt_text(kind)
-	return "E 短扑    势力 %d/3" % power_pips
+	return "空格短扑    势力 %d/3" % power_pips
 
 
 func remaining_work_sec() -> float:
@@ -324,6 +346,10 @@ func _ensure_sprite() -> void:
 		carry_visual = preload("res://src/fx/PelicanCarry.gd").new()
 		carry_visual.z_index = 3
 		add_child(carry_visual)
+	if skin == Rules.CharSkin.DOG:
+		pack_visual = preload("res://src/fx/DogPack.gd").new()
+		pack_visual.z_index = 2
+		add_child(pack_visual)
 	if kind == Rules.Kind.EMPLOYEE:
 		_ensure_bike_sprites()
 	zzz_label = Label.new()
@@ -373,6 +399,21 @@ func say(text: String, hold := 1.7) -> void:
 	bubble_t = hold
 	bubble_bg.visible = true
 	bubble_lab.visible = true
+
+
+func shout_bros() -> void:
+	say("兄弟！！", 1.55)
+	if DisplayServer.get_name() == "headless":
+		return
+	if not DisplayServer.has_feature(DisplayServer.FEATURE_TEXT_TO_SPEECH):
+		return
+	var voice := ""
+	var voices := DisplayServer.tts_get_voices_for_language("zh")
+	if voices.is_empty():
+		voices = DisplayServer.tts_get_voices_for_language("zh_CN")
+	if not voices.is_empty():
+		voice = str(voices[0])
+	DisplayServer.tts_speak("兄弟", voice, 92, 1.08, 1.15)
 
 
 func _apply_scarf() -> void:
@@ -474,6 +515,11 @@ func _update_visual(delta := 0.0) -> void:
 	body_sprite.rotation = 0.0
 	body_sprite.scale = Vector2(sc, sc)
 	landing_left = maxf(0.0, landing_left - delta)
+	if fly_left > 0.0 and not Net.is_enet_server() and not Net.go_match():
+		fly_left = maxf(0.0, fly_left - delta)
+		if fly_left <= 0.0:
+			collision_mask = 1
+			z_index = 0
 	if landing_left > 0.0:
 		var bounce := sin((1.0 - landing_left / 0.4) * PI)
 		body_sprite.position.y = -bounce * 12.0
@@ -483,13 +529,28 @@ func _update_visual(delta := 0.0) -> void:
 		body_sprite.scale *= Vector2(1.0 + lean * 0.18, 1.0 - lean * 0.1)
 		body_sprite.position.x = (1.0 if _facing.x >= 0.0 else -1.0) * lean * 7.0
 		body_sprite.position.y = sin(_anim_acc * 12.0) * 1.5
+	var fly_h := _fly_height()
+	if fly_h > 0.5:
+		body_sprite.position.y -= fly_h
+		body_sprite.scale *= Vector2(1.02, 0.90)
+		z_index = 8
+		if carry_visual:
+			carry_visual.position.y = -fly_h
+	else:
+		z_index = 0
+		if carry_visual:
+			carry_visual.position.y = 0.0
 	body_sprite.visible = carried_by < 0
 	body_sprite.offset = Vector2(-sz.x * 0.5, -sz.y + Ride.FOOT_PAD)
 	if emp_state == Rules.EmpState.TRADE:
 		_facing = Vector2.RIGHT
 		body_sprite.flip_h = false
 	else:
-		body_sprite.flip_h = (not sitting) and _facing.x < 0.0
+		# Tiger walk/run/lunge frames are drawn facing left; other packs face right.
+		var flip_left := _facing.x < 0.0
+		if skin == Rules.CharSkin.TIGER:
+			flip_left = _facing.x > 0.0
+		body_sprite.flip_h = (not sitting) and flip_left
 	_update_bike_visual(_is_riding(), walk_sc)
 	if zzz_label:
 		if emp_state == Rules.EmpState.TALK:
@@ -513,9 +574,11 @@ func _update_visual(delta := 0.0) -> void:
 			zzz_label.text = "z z"
 			zzz_label.add_theme_color_override("font_color", Color(0.35, 0.35, 0.45))
 	if name_label:
-		name_label.position = Vector2(-40, -sz.y * sc - 18.0)
-	_update_chips(sz.y * sc)
-	_update_world_text(sz.y * sc, delta)
+		name_label.position = Vector2(-40, -sz.y * sc - 18.0 - fly_h)
+	if zzz_label:
+		zzz_label.position.y = -64.0 - fly_h
+	_update_chips(sz.y * sc + fly_h)
+	_update_world_text(sz.y * sc + fly_h, delta)
 	_update_hold()
 	_update_threat_modulate()
 	_sync_scarf(pose)
@@ -529,6 +592,9 @@ func _update_visual(delta := 0.0) -> void:
 
 
 func _anim_pose() -> String:
+	if fly_left > 0.0:
+		var fly_frames: PackedStringArray = Kit.loop_frames("run")
+		return fly_frames[int(_anim_acc * 18.0) % fly_frames.size()]
 	var anim := "idle"
 	var shot := -1
 	match emp_state:
@@ -769,6 +835,11 @@ func _physics_process(delta: float) -> void:
 func _server_tick(delta: float) -> void:
 	carry_recovery = maxf(0.0, carry_recovery - delta)
 	bike_cd = maxf(0.0, bike_cd - delta)
+	pack_cd = maxf(0.0, pack_cd - delta)
+	if pack_left > 0.0:
+		pack_left = maxf(0.0, pack_left - delta)
+		if pack_left <= 0.0:
+			Match.clear_bros(self)
 	lunge_stun = maxf(0.0, lunge_stun - delta)
 	stand_lock = max(0.0, stand_lock - delta)
 	catch_chain = max(0.0, catch_chain - delta)
@@ -780,6 +851,7 @@ func _server_tick(delta: float) -> void:
 	kpi_cd = max(0.0, kpi_cd - delta)
 	dash_cd = max(0.0, dash_cd - delta)
 	dash_left = max(0.0, dash_left - delta)
+	fly_cd = max(0.0, fly_cd - delta)
 	report_cd = max(0.0, report_cd - delta)
 	fan_cd = max(0.0, fan_cd - delta)
 	throw_flash = max(0.0, throw_flash - delta)
@@ -805,6 +877,7 @@ func _server_tick(delta: float) -> void:
 	want_fan = false
 	want_incident = false
 	want_blame = false
+	want_fly = false
 
 
 func _employee_tick(delta: float) -> void:
@@ -813,8 +886,16 @@ func _employee_tick(delta: float) -> void:
 		if carrier != null:
 			global_position = carrier.global_position
 			velocity = Vector2.ZERO
-			if want_interact and not is_bot() and carrier.carry_windup <= 0.0:
+			if want_interact and not is_bot() and carrier.carry_windup <= 0.0 and carrier.fly_left <= 0.0:
 				Match.release_carry(carrier)
+		return
+	_try_start_fly()
+	if fly_left > 0.0:
+		if carrying_slot >= 0:
+			carry_windup = maxf(0.0, carry_windup - delta)
+			if emp_state != Rules.EmpState.WALK and emp_state != Rules.EmpState.CLOCKING:
+				Match.release_carry(self, true)
+		_tick_pelican_fly(delta)
 		return
 	if carrying_slot >= 0:
 		carry_left -= delta
@@ -864,7 +945,7 @@ func _employee_tick(delta: float) -> void:
 			if blocked != null and blocked.closed and not _is_riding():
 				office().try_door(self)
 			_try_start_emp_dash()
-			var clock_speed := _slowed(Rules.EMPLOYEE_SPEED * (Rules.BIKE_SPEED_MUL if bike_left > 0.0 else 1.0))
+			var clock_speed := _slowed(Rules.EMPLOYEE_SPEED * (Rules.BIKE_SPEED_MUL if bike_left > 0.0 else 1.0) * (Rules.DOG_PACK_SPEED_MUL if pack_hp > 0 else 1.0))
 			if dash_left > 0.0:
 				clock_speed = _slowed(Rules.EMP_DASH_SPEED)
 			_move_towards(office().path_to(global_position, target), clock_speed, delta)
@@ -939,6 +1020,8 @@ func _employee_tick(delta: float) -> void:
 		speed *= Rules.DELIVERY_BOOST_MUL
 	if Match.intranet_boost_left > 0.0:
 		speed *= Rules.INTRANET_BOOST_MUL
+	if pack_hp > 0:
+		speed *= Rules.DOG_PACK_SPEED_MUL
 	speed = _slowed(speed)
 	if dash_left > 0.0:
 		velocity = dash_dir * _slowed(Rules.EMP_DASH_SPEED)
@@ -1052,7 +1135,7 @@ func _try_employee_interact() -> void:
 		if map.take_spot(stock, slot):
 			_begin_trade(stock)
 		return
-	return
+	Match.try_bros(self)
 
 
 func _stand_up() -> void:
@@ -1374,6 +1457,8 @@ func _begin_clocking() -> void:
 
 
 func _clock_out() -> void:
+	_end_fly()
+	Match.clear_bros(self)
 	_dismount_bike()
 	emp_state = Rules.EmpState.LEFT
 	visible = false
@@ -1388,6 +1473,8 @@ func _tick_talk(delta: float) -> void:
 
 
 func begin_talk() -> void:
+	_end_fly()
+	Match.clear_bros(self)
 	Match.release_actor_carry(self, true)
 	_dismount_bike()
 	_cancel_play()
@@ -1453,6 +1540,8 @@ func apply_catch(repeat: bool, extra_stun: float) -> void:
 
 
 func send_to_meeting(seconds: float, meeting_pos: Vector2) -> void:
+	_end_fly()
+	Match.clear_bros(self)
 	Match.release_actor_carry(self, true)
 	if emp_state == Rules.EmpState.CLOCKING or emp_state == Rules.EmpState.LEFT:
 		return
@@ -1512,7 +1601,7 @@ func apply_report_hit() -> bool:
 
 
 func _emp_can_dash() -> bool:
-	if bike_left > 0.0 or carried_by >= 0 or stand_lock > 0.0:
+	if bike_left > 0.0 or carried_by >= 0 or stand_lock > 0.0 or fly_left > 0.0:
 		return false
 	if carry_windup > 0.0:
 		return false
@@ -1528,7 +1617,7 @@ func _try_start_emp_dash() -> bool:
 func _start_dash(cd: float, dur: float) -> bool:
 	if dash_cd > 0.0 or dash_left > 0.0:
 		return false
-	if lunge_left > 0.0 or lunge_stun > 0.0:
+	if lunge_left > 0.0 or lunge_stun > 0.0 or fly_left > 0.0:
 		return false
 	var d := input_dir
 	if d.length() < 0.12:
@@ -1539,6 +1628,122 @@ func _start_dash(cd: float, dur: float) -> bool:
 	dash_left = dur
 	dash_cd = cd
 	return true
+
+
+func _try_start_fly() -> bool:
+	if not want_fly:
+		return false
+	if skin != Rules.CharSkin.PELICAN or is_bot():
+		return false
+	if fly_left > 0.0:
+		return false
+	if fly_cd > 0.05:
+		say("飞走冷却 %.0fs" % ceilf(fly_cd), 0.9)
+		return false
+	if bike_left > 0.0 or carried_by >= 0 or stand_lock > 0.0:
+		return false
+	if play_kind != "" or rescue_left > 0.0:
+		return false
+	if emp_state != Rules.EmpState.WALK and emp_state != Rules.EmpState.CLOCKING:
+		return false
+	var d := input_dir
+	if d.length() < 0.12:
+		d = _facing
+	if d.length() < 0.12:
+		d = Vector2.DOWN
+	fly_dir = d.normalized()
+	fly_left = Rules.PELICAN_FLY_TIME
+	fly_cd = Rules.PELICAN_FLY_CD
+	dash_left = 0.0
+	collision_mask = 0
+	z_index = 8
+	clear_rescue()
+	if carrying_slot >= 0:
+		say("带人飞走！", 1.2)
+	else:
+		say("飞走！", 1.0)
+	Match.fly_event.rpc(slot, fly_dir.x, fly_dir.y, true)
+	return true
+
+
+func _tick_pelican_fly(delta: float) -> void:
+	collision_mask = 0
+	velocity = fly_dir * Rules.PELICAN_FLY_SPEED
+	global_position += fly_dir * Rules.PELICAN_FLY_SPEED * delta
+	global_position = _clamp_map(global_position)
+	_facing = fly_dir
+	fly_left -= delta
+	if fly_left <= 0.0:
+		_end_fly()
+
+
+func _fly_height() -> float:
+	if fly_left <= 0.0:
+		return 0.0
+	var t := 1.0 - clampf(fly_left / maxf(Rules.PELICAN_FLY_TIME, 0.01), 0.0, 1.0)
+	var envelope := 1.0
+	if t < 0.2:
+		var u := t / 0.2
+		envelope = u * u * (3.0 - 2.0 * u)
+	elif t > 0.78:
+		var u := (1.0 - t) / 0.22
+		envelope = u * u * (3.0 - 2.0 * u)
+	return (Rules.PELICAN_FLY_LIFT + sin(_anim_acc * 14.0) * 6.0) * envelope
+
+
+func _end_fly() -> void:
+	var was := fly_left > 0.0 or collision_mask == 0
+	fly_left = 0.0
+	collision_mask = 1
+	z_index = 0
+	velocity = Vector2.ZERO
+	if not was:
+		return
+	_resolve_fly_landing()
+	landing_left = maxf(landing_left, 0.22)
+	Match.fly_event.rpc(slot, 0.0, 0.0, false)
+
+
+func _clamp_map(p: Vector2) -> Vector2:
+	return Vector2(clampf(p.x, 48.0, Rules.MAP_SIZE.x - 48.0), clampf(p.y, 48.0, Rules.MAP_SIZE.y - 48.0))
+
+
+func _blocked_at(pos: Vector2) -> bool:
+	var world := get_world_2d()
+	if world == null:
+		return false
+	var cs := get_node_or_null("Collision") as CollisionShape2D
+	if cs == null or cs.shape == null:
+		return false
+	var q := PhysicsShapeQueryParameters2D.new()
+	q.shape = cs.shape
+	q.transform = Transform2D(0.0, pos)
+	q.collision_mask = 1
+	q.exclude = [get_rid()]
+	return not world.direct_space_state.intersect_shape(q, 1).is_empty()
+
+
+func _resolve_fly_landing() -> void:
+	global_position = _clamp_map(global_position)
+	if not _blocked_at(global_position):
+		return
+	if fly_dir.length() > 0.12:
+		var back := -fly_dir.normalized()
+		for i in 40:
+			var cand := _clamp_map(global_position + back * (8.0 * float(i + 1)))
+			if not _blocked_at(cand):
+				global_position = cand
+				return
+	for r in range(12, 168, 12):
+		for a in 12:
+			var ang := TAU * float(a) / 12.0
+			var cand := _clamp_map(global_position + Vector2(cos(ang), sin(ang)) * float(r))
+			if not _blocked_at(cand):
+				global_position = cand
+				return
+	var map := office()
+	if map != null and map.points.has("corridor"):
+		global_position = map.points["corridor"]
 
 
 func _boss_tick(delta: float) -> void:
@@ -1577,6 +1782,9 @@ func _tick_boss_lunge(delta: float) -> void:
 	move_and_slide()
 	if velocity.length() > 4.0:
 		_facing = velocity.normalized()
+	if Match.hit_lunge_bro(self, prev, global_position):
+		velocity = Vector2.ZERO
+		return
 	var vic: Actor = Match.lunge_victim(self, prev, global_position)
 	if vic != null:
 		Match.grab_lunge(self, vic)
@@ -1628,7 +1836,7 @@ func _move_towards(target: Vector2, speed: float, delta: float) -> void:
 	_facing = velocity.normalized()
 
 
-func apply_input(x: float, y: float, interact: bool, slack: bool, meeting: bool, kpi: bool, dash: bool, report := false, fan := false, incident := false, blame := false) -> void:
+func apply_input(x: float, y: float, interact: bool, slack: bool, meeting: bool, kpi: bool, dash: bool, report := false, fan := false, fly := false, incident := false, blame := false) -> void:
 	input_dir = Vector2(x, y)
 	if interact:
 		want_interact = true
@@ -1644,6 +1852,8 @@ func apply_input(x: float, y: float, interact: bool, slack: bool, meeting: bool,
 		want_report = true
 	if fan:
 		want_fan = true
+	if fly:
+		want_fly = true
 	if incident:
 		want_incident = true
 	if blame:
@@ -1651,15 +1861,15 @@ func apply_input(x: float, y: float, interact: bool, slack: bool, meeting: bool,
 
 
 @rpc("any_peer", "unreliable")
-func recv_input(x: float, y: float, interact: bool, slack: bool, meeting: bool, kpi: bool, dash: bool, report := false, fan := false, incident := false, blame := false) -> void:
+func recv_input(x: float, y: float, interact: bool, slack: bool, meeting: bool, kpi: bool, dash: bool, report := false, fan := false, fly := false, incident := false, blame := false) -> void:
 	if not multiplayer.is_server():
 		return
 	if multiplayer.get_remote_sender_id() != peer_id:
 		return
-	apply_input(x, y, interact, slack, meeting, kpi, dash, report, fan, incident, blame)
+	apply_input(x, y, interact, slack, meeting, kpi, dash, report, fan, fly, incident, blame)
 
 
-func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0, slow: float = 0.0, rcd: float = 0.0, fcd: float = 0.0, power: int = 0, lstun: float = 0.0) -> void:
+func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0, slow: float = 0.0, rcd: float = 0.0, fcd: float = 0.0, power: int = 0, lstun: float = 0.0, flyl: float = -1.0, flyc: float = -1.0) -> void:
 	_remote_pos = Vector2(px, py)
 	emp_state = st
 	hours = h
@@ -1676,12 +1886,16 @@ func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool
 	fan_cd = fcd
 	power_pips = power
 	lunge_stun = lstun
+	if flyl >= 0.0:
+		fly_left = flyl
+	if flyc >= 0.0:
+		fly_cd = flyc
 	if name_label:
 		name_label.text = display_name
 
 
 func _broadcast_state() -> void:
-	Match.sync_actor.rpc(slot, global_position.x, global_position.y, emp_state, hours, energy, visible, meeting_cd, kpi_cd, dash_cd, occupy_id, talk_progress, rescue_left, bike_left, slow_left, report_cd, fan_cd, power_pips, lunge_stun)
+	Match.sync_actor.rpc(slot, global_position.x, global_position.y, emp_state, hours, energy, visible, meeting_cd, kpi_cd, dash_cd, occupy_id, talk_progress, rescue_left, bike_left, slow_left, report_cd, fan_cd, power_pips, lunge_stun, fly_left, fly_cd)
 	Match.sync_cells.rpc(slot, tasks_done, task_progress, energy_cells, energy_charge, play_kind, play_t, play_mark, play_hits, play_msg, 1 if tasking else 0, occupy_id)
 	if emp_state == Rules.EmpState.TRADE:
 		Match.sync_trade.rpc(slot, trade_left, trade_price, trade_cash, trade_shares, trade_holding, trade_history)
@@ -1710,6 +1924,10 @@ func _draw() -> void:
 		var ty := -108.0
 		draw_rect(Rect2(-w * 0.5, ty, w, 6), Color(0.14, 0.14, 0.16, 0.9))
 		draw_rect(Rect2(-w * 0.5, ty, w * clampf(fix_progress, 0.0, 1.0), 6), Color(0.22, 0.88, 0.42))
+	if fly_left > 0.0:
+		draw_set_transform(Vector2(0, 12), 0.0, Vector2(1.7, 0.36))
+		draw_circle(Vector2.ZERO, 20.0, Color(0.08, 0.06, 0.12, 0.20))
+		draw_set_transform(Vector2.ZERO)
 	if kind == Rules.Kind.EMPLOYEE and emp_state == Rules.EmpState.TALK:
 		var pulse := 0.72 + 0.28 * (0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.006))
 		draw_circle(Vector2(0, -18), 52.0 * pulse, Color(0.85, 0.10, 0.08, 0.16 * pulse))

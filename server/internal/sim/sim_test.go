@@ -66,6 +66,79 @@ func TestCarryFreesSeat(t *testing.T) {
 	}
 }
 
+func TestPelicanFlyCrossesClosedDoor(t *testing.T) {
+	m := NewMatch()
+	m.Slots[SlotEmpD] = 2
+	m.Slots[SlotEmpA] = 1
+	m.Start(true, true)
+	bird := m.Actors[SlotEmpD]
+	horse := m.Actors[SlotEmpA]
+	bird.standUp(m)
+	horse.standUp(m)
+	d := m.Office.NearestDoor(Vec{1340, 554}, 24)
+	if d == nil {
+		t.Fatal("missing tea door")
+	}
+	d.Slam()
+	bird.Pos = Vec{1340, 640}
+	bird.Facing = Vec{0, -1}
+	bird.In = Vec{0, -1}
+	horse.WantFly = true
+	if horse.tryStartFly(m) {
+		t.Fatal("horse should not fly")
+	}
+	bird.WantFly = true
+	if !bird.tryStartFly(m) {
+		t.Fatal("pelican fly should start")
+	}
+	if bird.FlyLeft <= 0 {
+		t.Fatal("fly timer")
+	}
+	for i := 0; i < 12; i++ {
+		bird.WantFly = false
+		bird.employeeTick(m, 0.05)
+	}
+	if bird.FlyLeft > 0 {
+		t.Fatalf("fly still active %v", bird.FlyLeft)
+	}
+	if bird.Pos.Y >= 530 {
+		t.Fatalf("should cross door, y=%v", bird.Pos.Y)
+	}
+	if m.Office.CircleHits(bird.Pos, ActorRadius) {
+		t.Fatal("landed in a wall")
+	}
+	bird.WantFly = true
+	if bird.tryStartFly(m) {
+		t.Fatal("cooldown should block")
+	}
+	bird.FlyCD = 0
+	bird.Pos = Vec{1340, 640}
+	horse.Pos = Vec{1376, 640}
+	if !m.TryCarry(bird) {
+		t.Fatal("carry before fly")
+	}
+	bird.In = Vec{0, -1}
+	bird.Facing = Vec{0, -1}
+	bird.WantFly = true
+	if !bird.tryStartFly(m) {
+		t.Fatal("loaded pelican should fly")
+	}
+	for i := 0; i < 12; i++ {
+		bird.WantFly = false
+		bird.employeeTick(m, 0.05)
+		horse.employeeTick(m, 0.05)
+	}
+	if horse.CarriedBy != bird.Slot {
+		t.Fatal("passenger dropped mid-fly")
+	}
+	if bird.Pos.Y >= 530 {
+		t.Fatalf("loaded fly should cross, y=%v", bird.Pos.Y)
+	}
+	if horse.Pos.Dist(bird.Pos) > 8 {
+		t.Fatalf("passenger not following %v vs %v", horse.Pos, bird.Pos)
+	}
+}
+
 func TestClosedDoorBlocksThenOpens(t *testing.T) {
 	o := DefaultOffice()
 	d := o.NearestDoor(Vec{180, 554}, 20)

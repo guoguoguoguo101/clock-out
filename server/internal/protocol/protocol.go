@@ -58,6 +58,7 @@ type Message struct {
 	Dash     bool       `json:"dash,omitempty"`
 	Incident bool       `json:"incident,omitempty"`
 	Blame    bool       `json:"blame,omitempty"`
+	Fly      bool       `json:"fly,omitempty"`
 	On       bool       `json:"on,omitempty"`
 	Rooms    []RoomInfo `json:"rooms,omitempty"`
 	Snapshot *Snapshot  `json:"snapshot,omitempty"`
@@ -124,6 +125,10 @@ type ActorSnap struct {
 	CarriedBy    int     `json:"carried_by"`
 	FacingX      float64 `json:"facing_x"`
 	StandLock    float64 `json:"stand_lock"`
+	Fly          float64 `json:"fly"`
+	FlyCD        float64 `json:"flycd"`
+	FlyDX        float64 `json:"fly_dx"`
+	FlyDY        float64 `json:"fly_dy"`
 }
 
 type DoorSnap struct {
