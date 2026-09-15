@@ -1,5 +1,8 @@
 extends Node
 
+const WeeklyReportScript := preload("res://src/fx/WeeklyReport.gd")
+const TigerBurstScript := preload("res://src/fx/TigerBurst.gd")
+
 signal lobby_changed
 signal match_started
 signal match_ended
@@ -8,6 +11,13 @@ signal kpi_popup
 signal caught(slot: int, repeat: bool, add_hours: float)
 signal talked(slot: int)
 signal rescued(slot: int, by_slot: int)
+signal stock_played(slot: int, pnl: float, energy_loss: float, boosted: bool)
+signal incident_started(blame_slot: int)
+signal incident_ended(fixed: bool, blame_slot: int)
+signal blame_passed(from_slot: int, to_slot: int)
+signal fix_completed(slot: int, is_assist: bool)
+signal random_event(event_name: String, data: Dictionary)
+signal random_event_ended(event_name: String)
 
 var phase := "lobby"
 var playing := false
@@ -31,6 +41,41 @@ var actors: Dictionary = {}
 var office: OfficeMap
 var world: Node2D
 var bots: Array = []
+var reports: Dictionary = {}
+var _next_report_id := 1
+var incident_active := false
+var incident_left := 0.0
+var incident_blame_slot := -1
+var incident_terminal_pos := Vector2.ZERO
+var incident_fixed := false
+var incident_assist_count := 0
+var _incident_terminal_spots := [
+	Vector2(1280, 670),
+	Vector2(280, 670),
+	Vector2(2100, 670),
+	Vector2(730, 1000),
+	Vector2(1100, 1000),
+]
+
+# ── 随机事件系统 ──
+var event_active := ""
+var event_left := 0.0
+var event_data := {}
+var _event_timer := 0.0
+var _event_count := 0
+var _event_used := []
+var _event_pool := ["anon_report", "blackout", "delivery", "intranet_down"]
+var _event_weights := {"anon_report": 16, "blackout": 10, "delivery": 14, "intranet_down": 12}
+# 匿名举报
+var anon_reveal_slot := -1
+var anon_reveal_left := 0.0
+# 停电
+var blackout_active := false
+# 外卖
+var delivery_spots := {}
+# 内网崩了
+var intranet_down := false
+var intranet_boost_left := 0.0
 
 var _actor_scene: PackedScene = preload("res://src/actor/Actor.tscn")
 
@@ -41,7 +86,9 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	if not multiplayer.is_server():
+	if Net.go_match():
+		return
+	if not Net.is_enet_server():
 		return
 	if phase == "countdown":
 		countdown -= delta
@@ -53,9 +100,14 @@ func _process(delta: float) -> void:
 	elif phase == "playing":
 		elapsed += delta
 		time_left = max(0.0, time_left - delta)
+		if incident_active:
+			_tick_incident(delta)
+		_tick_random_events(delta)
 		for bot in bots:
 			bot.tick(delta)
 		_sync_clock.rpc(phase, elapsed, time_left, 0.0)
+		_sync_incident.rpc(incident_active, incident_left, incident_blame_slot, incident_terminal_pos.x, incident_terminal_pos.y)
+		_sync_event_state.rpc(event_active, event_left, anon_reveal_slot, anon_reveal_left, blackout_active, intranet_down, intranet_boost_left)
 		hud_dirty.emit()
 		if time_left <= 0.0 or _all_punched():
 			_finish()
@@ -74,7 +126,7 @@ func day_progress() -> float:
 
 
 func my_slot() -> int:
-	var id := multiplayer.get_unique_id()
+	var id := Net.go_peer_id if Net.go_match() else (multiplayer.get_unique_id() if Net.has_peer() else 0)
 	for s in slots.keys():
 		if int(slots[s]) == id:
 			return int(s)
@@ -106,10 +158,42 @@ func _claim(pid: int, slot: int, player_name: String) -> void:
 	for s in slots.keys():
 		if int(slots[s]) == pid:
 			slots[s] = -1
-	if int(slots[slot]) != -1 and int(slots[slot]) != pid:
+	if int(slots[slot]) != -1 and int(slots[slot]) != pid and int(slots[slot]) != 0:
 		return
 	slots[slot] = pid
 	names[pid] = player_name
+	_broadcast_lobby()
+
+
+func set_bot_local(slot: int, on: bool) -> void:
+	if not Net.is_enet_server():
+		return
+	_set_bot(slot, on)
+
+
+func _set_bot(slot: int, on: bool) -> void:
+	if phase != "lobby" or not slots.has(slot):
+		return
+	var cur := int(slots[slot])
+	if on:
+		if cur > 0:
+			return
+		slots[slot] = 0
+		names[0] = "Bot"
+	else:
+		if cur != 0:
+			return
+		slots[slot] = -1
+	_broadcast_lobby()
+
+
+func fill_empty_bots_local() -> void:
+	if not Net.is_enet_server() or phase != "lobby":
+		return
+	for s in slots.keys():
+		if int(slots[s]) == -1:
+			slots[s] = 0
+	names[0] = "Bot"
 	_broadcast_lobby()
 
 
@@ -135,10 +219,6 @@ func _start(p_short: bool, instant: bool = false) -> void:
 	elapsed = 0.0
 	clock_log.clear()
 	bots.clear()
-	for s in slots.keys():
-		if int(slots[s]) == -1:
-			slots[s] = 0
-			names[0] = "Bot"
 	_spawn_all()
 	_broadcast_lobby()
 	begin_match.rpc(p_short, instant)
@@ -163,6 +243,7 @@ func begin_match(p_short: bool, instant: bool = false) -> void:
 
 
 func _spawn_all() -> void:
+	_clear_reports()
 	for a in actors.values():
 		(a as Node).queue_free()
 	actors.clear()
@@ -173,6 +254,8 @@ func _spawn_all() -> void:
 		office.occupiers[k] = -1
 	for s in slots.keys():
 		var pid := int(slots[s])
+		if pid < 0:
+			continue
 		var actor: Actor = _actor_scene.instantiate()
 		var pname := _name_for(pid, int(s))
 		actor.setup(int(s), pid, pname)
@@ -180,11 +263,17 @@ func _spawn_all() -> void:
 		if int(s) == Rules.Slot.BOSS:
 			actor.global_position = office.points["boss_spawn"]
 		else:
+			var seat_i := Rules.employee_index(int(s)) + 1
+			var seat_id := "seat_%d" % seat_i
 			actor.global_position = office.seat_for_slot(int(s))
 			actor.emp_state = Rules.EmpState.WORK
-			actor.occupy_id = "seat_%d" % (Rules.employee_index(int(s)) + 1)
-			actor.last_seat = Rules.employee_index(int(s)) + 1
-			office.take_spot(actor.occupy_id, int(s))
+			actor.energy_cells = Rules.ENERGY_CELLS
+			actor.energy_charge = 0.0
+			actor.tasks_done = 0
+			actor.occupy_id = seat_id
+			actor.last_seat = seat_i
+			office.take_spot(seat_id, int(s))
+			actor._refresh_legacy()
 		actors[int(s)] = actor
 		spawn_actor.rpc(int(s), pid, pname, actor.global_position.x, actor.global_position.y, actor.emp_state)
 		if pid == 0:
@@ -207,18 +296,58 @@ func spawn_actor(slot: int, pid: int, pname: String, x: float, y: float, st: int
 	office.add_child(actor, true)
 	actor.global_position = Vector2(x, y)
 	actor.emp_state = st
+	if Rules.slot_is_employee(slot):
+		actor.energy_cells = Rules.ENERGY_CELLS
+		actor.energy_charge = 0.0
+		actor.tasks_done = 0
+		actor.tasking = false
+		if st == Rules.EmpState.WORK:
+			var seat_id := "seat_%d" % (Rules.employee_index(slot) + 1)
+			actor.occupy_id = seat_id
+			actor.last_seat = Rules.employee_index(slot) + 1
+			office.take_spot(seat_id, slot)
+		actor._refresh_legacy()
 	actors[slot] = actor
 
 
 @rpc("authority", "unreliable")
-func sync_actor(slot: int, x: float, y: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, _occ: String, talk: float = 0.0, rescue: float = 0.0) -> void:
+func sync_actor(slot: int, x: float, y: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, _occ: String, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0, slow: float = 0.0, rcd: float = 0.0, fcd: float = 0.0, power: int = 0, lstun: float = 0.0, flyl: float = -1.0, flyc: float = -1.0, review: int = 0, review_window: float = 0.0, review_delay: float = 0.0) -> void:
 	if multiplayer.is_server():
 		return
 	if not actors.has(slot):
 		return
 	var actor := actors[slot] as Actor
 	var state := Rules.EmpState.CARRIED if actor.carried_by >= 0 else (Rules.EmpState.WALK if st == Rules.EmpState.CARRIED else st)
-	actor.apply_snapshot(x, y, state, h, e, vis, mcd, kcd, dcd, talk, rescue)
+	actor.apply_snapshot(x, y, state, h, e, vis, mcd, kcd, dcd, talk, rescue, bike, slow, rcd, fcd, power, lstun, flyl, flyc, review, review_window, review_delay)
+
+
+@rpc("authority", "unreliable")
+func sync_cells(slot: int, done: int, progress: float, cells: int, charge: float, kind: String, t: float, mark: float, hits: int, msg: String, busy: int, occ := "") -> void:
+	if multiplayer.is_server():
+		return
+	if not actors.has(slot):
+		return
+	var actor := actors[slot] as Actor
+	actor.tasks_done = done
+	actor.task_progress = progress
+	actor.energy_cells = cells
+	actor.energy_charge = charge
+	actor.play_kind = kind
+	actor.play_t = t
+	actor.play_mark = mark
+	actor.play_hits = hits
+	actor.play_msg = msg
+	actor.tasking = busy == 1
+	if occ != "":
+		actor.occupy_id = occ
+	actor._refresh_legacy()
+
+
+@rpc("authority", "unreliable")
+func sync_trade(slot: int, left: float, price: float, cash: float, shares: float, holding: bool, hist: PackedFloat32Array) -> void:
+	if not actors.has(slot):
+		return
+	(actors[slot] as Actor).apply_trade(left, price, cash, shares, holding, hist)
 
 
 @rpc("authority", "unreliable")
@@ -231,11 +360,40 @@ func _sync_clock(p_phase: String, p_elapsed: float, p_left: float, p_cd: float) 
 	hud_dirty.emit()
 
 
+@rpc("authority", "unreliable")
+func _sync_incident(active: bool, left: float, blame: int, tx: float, ty: float) -> void:
+	if multiplayer.is_server():
+		return
+	incident_active = active
+	incident_left = left
+	incident_blame_slot = blame
+	incident_terminal_pos = Vector2(tx, ty)
+	for a in actors.values():
+		var e := a as Actor
+		e.is_blame_target = (e.slot == blame and active)
+
+
+@rpc("authority", "unreliable")
+func _sync_event_state(p_active: String, p_left: float, p_anon_slot: int, p_anon_left: float, p_blackout: bool, p_intranet: bool, p_intra_boost: float) -> void:
+	if multiplayer.is_server():
+		return
+	event_active = p_active
+	event_left = p_left
+	anon_reveal_slot = p_anon_slot
+	anon_reveal_left = p_anon_left
+	blackout_active = p_blackout
+	intranet_down = p_intranet
+	intranet_boost_left = p_intra_boost
+
+
 func is_supervised(emp: Actor) -> bool:
 	if not actors.has(Rules.Slot.BOSS):
 		return false
 	var boss: Actor = actors[Rules.Slot.BOSS]
-	if boss.global_position.distance_to(emp.global_position) <= Rules.SUPERVISE_DIST:
+	var dist := Rules.SUPERVISE_DIST
+	if incident_active:
+		dist *= Rules.INCIDENT_BOSS_RANGE_MUL
+	if boss.global_position.distance_to(emp.global_position) <= dist:
 		return true
 	var sid := emp.occupy_id
 	if sid == "" or not sid.begins_with("seat_"):
@@ -259,19 +417,39 @@ func is_watched(emp: Actor) -> bool:
 
 
 func is_catchable(emp: Actor) -> bool:
-	if emp.kind != Rules.Kind.EMPLOYEE:
+	return is_lunge_target(emp)
+
+
+func is_lunge_target(emp: Actor) -> bool:
+	if emp == null or emp.kind != Rules.Kind.EMPLOYEE:
 		return false
-	if emp.emp_state == Rules.EmpState.SLACK or emp.emp_state == Rules.EmpState.COFFEE or emp.emp_state == Rules.EmpState.TOILET:
-		return true
-	return emp.rescue_left > 0.0 or emp.carrying_slot >= 0
+	if emp.emp_state in [Rules.EmpState.LEFT, Rules.EmpState.TALK, Rules.EmpState.MEETING, Rules.EmpState.CLOCKING, Rules.EmpState.CARRIED]:
+		return false
+	return true
+
+
+func is_hold_target(emp: Actor) -> bool:
+	if emp == null or emp.kind != Rules.Kind.EMPLOYEE:
+		return false
+	return emp.emp_state == Rules.EmpState.TALK or emp.emp_state == Rules.EmpState.MEETING
+
+
+func is_meeting_target(emp: Actor) -> bool:
+	if emp == null or emp.kind != Rules.Kind.EMPLOYEE:
+		return false
+	return emp.emp_state == Rules.EmpState.TALK
 
 
 func nearest_talk(from: Vector2, max_d: float) -> Actor:
+	return nearest_hold(from, max_d)
+
+
+func nearest_hold(from: Vector2, max_d: float) -> Actor:
 	var best: Actor = null
 	var best_d := max_d
 	for a in actors.values():
 		var e := a as Actor
-		if e.kind != Rules.Kind.EMPLOYEE or e.emp_state != Rules.EmpState.TALK:
+		if not is_hold_target(e):
 			continue
 		var d := from.distance_to(e.global_position)
 		if d < best_d:
@@ -281,15 +459,69 @@ func nearest_talk(from: Vector2, max_d: float) -> Actor:
 
 
 func try_catch(boss: Actor) -> bool:
+	return start_lunge(boss)
+
+
+func start_lunge(boss: Actor) -> bool:
+	if not multiplayer.is_server() or not playing:
+		return false
+	if boss.kind != Rules.Kind.BOSS:
+		return false
+	if boss.lunge_left > 0.0 or boss.lunge_stun > 0.0 or boss.dash_left > 0.0:
+		return false
+	var aim := boss.facing_dir()
+	if aim.length() < 0.12:
+		aim = Vector2.DOWN
+	boss.dash_dir = aim.normalized()
+	boss.lunge_left = Rules.TIGER_LUNGE_TIME
+	boss.lunge_hit = false
+	boss.say("过来复盘！", 0.8)
+	spawn_fx(Rules.FX_LUNGE, boss.global_position + aim * 18.0, 0.42, 0.11, -8.0)
+	lunge_event.rpc(boss.slot, boss.dash_dir.x, boss.dash_dir.y, true)
+	return true
+
+
+func lunge_victim(boss: Actor, from: Vector2, to: Vector2) -> Actor:
+	var best: Actor = null
+	var best_t := 999.0
 	for a in actors.values():
 		var e := a as Actor
-		if not is_catchable(e):
+		if e == boss or not is_lunge_target(e):
 			continue
-		if boss.global_position.distance_to(e.global_position) > Rules.CATCH_RANGE:
+		var t := _along_segment(e.global_position, from, to)
+		var d := _dist_point_segment(e.global_position, from, to)
+		if d > Rules.TIGER_LUNGE_RADIUS:
 			continue
-		catch_employee(e)
-		return true
-	return false
+		if t < best_t:
+			best_t = t
+			best = e
+	return best
+
+
+func grab_lunge(boss: Actor, emp: Actor) -> void:
+	if not multiplayer.is_server():
+		return
+	boss.lunge_left = 0.0
+	boss.lunge_hit = true
+	boss.lunge_stun = Rules.TIGER_LUNGE_HIT_STUN
+	boss.power_pips = mini(boss.power_pips + 1, Rules.TIGER_POWER_MAX)
+	spawn_fx(Rules.FX_CLAW, emp.global_position, 0.55, 0.12, -22.0)
+	spawn_fx(Rules.FX_STAMP, emp.global_position, 0.7, 0.1, -36.0)
+	audit_hit.rpc(emp.slot, boss.dash_dir.x, boss.dash_dir.y)
+	start_talk(emp)
+	lunge_event.rpc(boss.slot, boss.dash_dir.x, boss.dash_dir.y, false)
+
+
+func miss_lunge(boss: Actor) -> void:
+	if not multiplayer.is_server():
+		return
+	if boss.lunge_hit:
+		boss.lunge_left = 0.0
+		return
+	boss.lunge_left = 0.0
+	boss.lunge_stun = Rules.TIGER_LUNGE_MISS_STUN
+	boss.say("扑空了", 0.9)
+	lunge_event.rpc(boss.slot, 0.0, 0.0, false)
 
 
 func catch_employee(emp: Actor) -> void:
@@ -313,9 +545,17 @@ func finish_talk(emp: Actor) -> void:
 	if emp.emp_state != Rules.EmpState.TALK:
 		return
 	var repeat := emp.catch_chain > 0.0
-	var add := Rules.CATCH_HOURS_REPEAT if repeat else Rules.CATCH_HOURS_FIRST
-	emp.apply_catch(repeat, 0.0)
-	notify_caught.rpc(emp.slot, repeat, add)
+	emp.apply_talk_fail(repeat)
+	notify_caught.rpc(emp.slot, repeat, 0.0)
+
+
+func finish_meeting(emp: Actor) -> void:
+	if not multiplayer.is_server():
+		return
+	if emp.emp_state != Rules.EmpState.MEETING:
+		return
+	emp.apply_meeting_fail()
+	notify_caught.rpc(emp.slot, true, 0.0)
 
 
 # Prototype interaction: any available employee can take the pelican shuttle.
@@ -337,6 +577,194 @@ func nearest_carry_target(carrier: Actor) -> Actor:
 	return best
 
 
+func try_bike(rider: Actor) -> bool:
+	if not multiplayer.is_server() or not playing or rider.is_bot():
+		return false
+	if rider.skin != Rules.CharSkin.KANGAROO:
+		return false
+	if rider.emp_state != Rules.EmpState.WALK and rider.emp_state != Rules.EmpState.CLOCKING:
+		return false
+	if rider.stand_lock > 0.0 or rider.bike_cd > 0.05:
+		return false
+	if rider.bike_left > 0.0 or rider.carrying_slot >= 0 or rider.carried_by >= 0:
+		return false
+	rider.bike_left = 1.0
+	bike_event.rpc(rider.slot, true)
+	return true
+
+
+func clear_bike(rider: Actor) -> void:
+	if not multiplayer.is_server():
+		return
+	rider.bike_left = 0.0
+	bike_event.rpc(rider.slot, false)
+
+
+@rpc("authority", "call_local", "reliable")
+func bike_event(slot: int, on: bool) -> void:
+	var rider := actors.get(slot) as Actor
+	if rider == null:
+		return
+	rider.bike_left = 1.0 if on else 0.0
+	rider._update_bike_visual(on)
+	if on:
+		rider.say("电瓶车，走起！", 1.3)
+
+
+@rpc("authority", "call_local", "reliable")
+func fly_event(slot: int, dx: float, dy: float, on: bool) -> void:
+	var bird := actors.get(slot) as Actor
+	if bird == null:
+		return
+	if on:
+		var aim := Vector2(dx, dy)
+		if aim.length() < 0.12:
+			aim = bird._facing
+		if aim.length() < 0.12:
+			aim = Vector2.DOWN
+		bird.fly_dir = aim.normalized()
+		bird.fly_left = Rules.PELICAN_FLY_TIME
+		bird.collision_mask = 0
+		bird.z_index = 8
+		if bird.carry_visual and bird.carry_visual.has_method("burst_fly"):
+			bird.carry_visual.burst_fly()
+	else:
+		bird.fly_left = 0.0
+		bird.collision_mask = 1
+		bird.z_index = 0
+
+
+func try_bros(dog: Actor) -> bool:
+	if not multiplayer.is_server() or not playing or dog == null or dog.is_bot():
+		return false
+	if dog.skin != Rules.CharSkin.DOG:
+		return false
+	if dog.emp_state != Rules.EmpState.WALK or dog.stand_lock > 0.0 or dog.carried_by >= 0:
+		return false
+	if dog.pack_hp > 0:
+		return false
+	if dog.pack_cd > 0.05:
+		dog.say("兄弟还在路上 %.0fs" % ceilf(dog.pack_cd), 0.9)
+		return false
+	dog.pack_hp = Rules.DOG_PACK_COUNT
+	dog.pack_left = Rules.DOG_PACK_TIME
+	dog.pack_cd = Rules.DOG_PACK_CD
+	bros_event.rpc(dog.slot, dog.pack_hp, dog.pack_left, 0)
+	return true
+
+
+func clear_bros(dog: Actor) -> void:
+	if dog == null:
+		return
+	if dog.pack_hp <= 0 and dog.pack_left <= 0.0:
+		return
+	dog.pack_hp = 0
+	dog.pack_left = 0.0
+	bros_event.rpc(dog.slot, 0, 0.0, 2)
+
+
+func pop_bro(dog: Actor, at: Vector2) -> bool:
+	if dog == null or dog.pack_hp <= 0:
+		return false
+	dog.pack_hp -= 1
+	if dog.pack_hp <= 0:
+		dog.pack_left = 0.0
+	bros_event.rpc(dog.slot, dog.pack_hp, dog.pack_left, 1, at.x, at.y)
+	return true
+
+
+func pack_world_slots(dog: Actor) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	if dog == null or dog.pack_hp <= 0:
+		return out
+	if dog.pack_visual != null and dog.pack_visual.has_method("active") and dog.pack_visual.active():
+		for i in 3:
+			if dog.pack_visual.alive[i]:
+				out.append(dog.pack_visual.world_slot(i))
+		if not out.is_empty():
+			return out
+	var face := dog._facing.normalized() if dog._facing.length() > 0.12 else Vector2.DOWN
+	var side := Vector2(-face.y, face.x)
+	var extras: Array[Vector2] = [
+		dog.global_position - face * 10.0 + side * 28.0,
+		dog.global_position - face * 10.0 - side * 28.0,
+		dog.global_position - face * 30.0,
+	]
+	for i in mini(dog.pack_hp, extras.size()):
+		out.append(extras[i])
+	return out
+
+
+func hit_lunge_bro(boss: Actor, from: Vector2, to: Vector2) -> bool:
+	if not multiplayer.is_server():
+		return false
+	var best_dog: Actor = null
+	var best_pos := Vector2.ZERO
+	var best_t := 999.0
+	for a in actors.values():
+		var dog := a as Actor
+		if dog == null or dog.pack_hp <= 0:
+			continue
+		for p in pack_world_slots(dog):
+			if _dist_point_segment(p, from, to) > Rules.TIGER_LUNGE_RADIUS:
+				continue
+			var t := _along_segment(p, from, to)
+			if t < best_t:
+				best_t = t
+				best_dog = dog
+				best_pos = p
+	if best_dog == null:
+		return false
+	pop_bro(best_dog, best_pos)
+	boss.lunge_left = 0.0
+	boss.lunge_hit = true
+	boss.lunge_stun = Rules.DOG_PACK_STUN
+	spawn_fx(Rules.FX_CLAW, best_pos, 0.5, 0.11, -18.0)
+	lunge_event.rpc(boss.slot, boss.dash_dir.x, boss.dash_dir.y, false)
+	return true
+
+
+func hit_report_bro(pos: Vector2) -> bool:
+	if not multiplayer.is_server():
+		return false
+	var best_dog: Actor = null
+	var best_pos := Vector2.ZERO
+	var best_d := Rules.REPORT_HIT_RADIUS
+	for a in actors.values():
+		var dog := a as Actor
+		if dog == null or dog.pack_hp <= 0:
+			continue
+		for p in pack_world_slots(dog):
+			var d := pos.distance_to(p)
+			if d < best_d:
+				best_d = d
+				best_dog = dog
+				best_pos = p
+	if best_dog == null:
+		return false
+	pop_bro(best_dog, best_pos)
+	return true
+
+
+@rpc("authority", "call_local", "reliable")
+func bros_event(slot: int, hp: int, left: float, kind: int, x: float = 0.0, y: float = 0.0) -> void:
+	var dog := actors.get(slot) as Actor
+	if dog == null:
+		return
+	dog.pack_hp = hp
+	dog.pack_left = left
+	if kind == 0:
+		dog.pack_cd = maxf(dog.pack_cd, Rules.DOG_PACK_CD)
+		if dog.pack_visual and dog.pack_visual.has_method("summon"):
+			dog.pack_visual.summon()
+		dog.shout_bros()
+	elif kind == 1:
+		if dog.pack_visual and dog.pack_visual.has_method("pop_at"):
+			dog.pack_visual.pop_at(Vector2(x, y))
+	elif dog.pack_visual and dog.pack_visual.has_method("dismiss"):
+		dog.pack_visual.dismiss()
+
+
 func try_carry(carrier: Actor) -> bool:
 	if not multiplayer.is_server() or not playing or carrier.is_bot():
 		return false
@@ -348,6 +776,9 @@ func try_carry(carrier: Actor) -> bool:
 	passenger.carry_saved_talk = passenger.talk_progress if passenger.emp_state == Rules.EmpState.TALK else -1.0
 	passenger._stand_up()
 	passenger.clear_rescue()
+	if passenger.bike_left > 0.0:
+		clear_bike(passenger)
+	clear_bros(passenger)
 	carrier.clear_rescue()
 	carrier._facing.x = 1.0 if passenger.global_position.x >= carrier.global_position.x else -1.0
 	carry_event.rpc(carrier.slot, passenger.slot, true, passenger.global_position, false, carrier._facing.x)
@@ -398,7 +829,7 @@ func carry_event(carrier_slot: int, passenger_slot: int, pickup: bool, pos: Vect
 		passenger.velocity = Vector2.ZERO
 		if carrier.carry_visual:
 			carrier.carry_visual.pickup(passenger, pos)
-		carrier.say("跨部门转运，走你！", 1.5)
+		carrier.say("接活水，走你！", 1.5)
 	else:
 		carrier.carrying_slot = -1
 		carrier.carry_left = 0.0
@@ -423,16 +854,12 @@ func try_rescue(rescuer: Actor) -> bool:
 		return false
 	if rescuer.emp_state != Rules.EmpState.WALK:
 		return false
-	var vic := nearest_talk(rescuer.global_position, Rules.RESCUE_RANGE)
+	var vic := nearest_hold(rescuer.global_position, Rules.RESCUE_RANGE)
 	if vic == null:
 		return false
-	if is_watched(vic):
-		var boss: Actor = actors.get(Rules.Slot.BOSS) as Actor
-		if boss != null and boss.global_position.distance_to(rescuer.global_position) <= Rules.CATCH_RANGE:
-			start_talk(rescuer)
-		return true
 	rescuer.rescue_slot = vic.slot
 	rescuer.rescue_left = Rules.RESCUE_TIME
+	rescuer.say("我来捞", 0.8)
 	return true
 
 
@@ -441,10 +868,7 @@ func tick_rescue(rescuer: Actor, delta: float) -> bool:
 		rescuer.clear_rescue()
 		return false
 	var vic: Actor = actors[rescuer.rescue_slot]
-	if vic.emp_state != Rules.EmpState.TALK:
-		rescuer.clear_rescue()
-		return false
-	if is_watched(vic):
+	if not is_hold_target(vic):
 		rescuer.clear_rescue()
 		return false
 	if rescuer.global_position.distance_to(vic.global_position) > Rules.RESCUE_RANGE + 16.0:
@@ -458,10 +882,8 @@ func tick_rescue(rescuer: Actor, delta: float) -> bool:
 
 
 func complete_rescue(rescuer: Actor, vic: Actor) -> void:
-	vic.end_talk_rescued()
+	vic.end_hold_rescued()
 	rescuer.clear_rescue()
-	vic.boost_left = Rules.RESCUE_BOOST_TIME
-	rescuer.boost_left = Rules.RESCUE_BOOST_TIME
 	notify_rescued.rpc(vic.slot, rescuer.slot)
 
 
@@ -476,30 +898,143 @@ func notify_talked(slot: int) -> void:
 
 
 @rpc("authority", "call_local", "reliable")
+func audit_hit(slot: int, dx: float, dy: float) -> void:
+	var emp := actors.get(slot) as Actor
+	if emp != null:
+		emp.show_audit_hit(Vector2(dx, dy))
+
+
+@rpc("authority", "call_local", "reliable")
 func notify_rescued(slot: int, by_slot: int) -> void:
 	rescued.emit(slot, by_slot)
 
 
-func try_meeting(boss: Actor) -> bool:
-	var best: Actor = null
-	var best_d := 420.0
+func apply_stock_boost(from_slot: int, pnl: float) -> void:
+	if not multiplayer.is_server():
+		return
 	for a in actors.values():
 		var e := a as Actor
 		if e.kind != Rules.Kind.EMPLOYEE:
 			continue
-		if e.emp_state in [Rules.EmpState.LEFT, Rules.EmpState.CLOCKING, Rules.EmpState.CARRIED]:
+		if e.emp_state == Rules.EmpState.LEFT:
 			continue
-		var d := boss.global_position.distance_to(e.global_position)
+		e.boost_left = maxf(e.boost_left, Rules.STOCK_BOOST_TIME)
+	notify_stock.rpc(from_slot, pnl, 0.0, true)
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_stock(slot: int, pnl: float, energy_loss: float, boosted: bool) -> void:
+	if boosted:
+		for a in actors.values():
+			var e := a as Actor
+			if e.kind != Rules.Kind.EMPLOYEE:
+				continue
+			if e.emp_state == Rules.EmpState.LEFT:
+				continue
+			e.boost_left = maxf(e.boost_left, Rules.STOCK_BOOST_TIME)
+	stock_played.emit(slot, pnl, energy_loss, boosted)
+
+
+func trade_threat(emp: Actor) -> float:
+	if emp == null or office == null or not actors.has(Rules.Slot.BOSS):
+		return 0.0
+	var boss: Actor = actors[Rules.Slot.BOSS]
+	if boss == null:
+		return 0.0
+	var d := emp.global_position.distance_to(boss.global_position)
+	var t := 1.0 - clampf((d - Rules.CATCH_RANGE) / maxf(Rules.STOCK_NEAR - Rules.CATCH_RANGE, 1.0), 0.0, 1.0)
+	if office.same_view(emp.global_position, boss.global_position):
+		t = maxf(t, 0.58)
+	return t
+
+
+func try_meeting(boss: Actor) -> bool:
+	if not multiplayer.is_server() or not playing:
+		return false
+	if boss.power_pips < Rules.TIGER_POWER_MAX:
+		boss.say("势力不足 %d/3" % boss.power_pips, 0.8)
+		return false
+	if boss.lunge_left > 0.0 or boss.lunge_stun > 0.0:
+		return false
+	var best := meeting_target(boss)
+	if best == null:
+		boss.say("附近没有正在约谈的人", 0.8)
+		return false
+	boss.power_pips = 0
+	spawn_fx(Rules.FX_MEETING, boss.global_position, 0.9, 0.16, -40.0)
+	var dest: Vector2 = office.points.get("meeting", best.global_position)
+	spawn_fx(Rules.FX_MEETING, dest, 1.1, 0.18, -20.0)
+	spawn_fx(Rules.FX_LOCK_RING, dest, 1.2, 0.2, 8.0)
+	best.send_to_meeting(Rules.TIGER_MEETING_TIME, dest)
+	boss.say("会议室，现在。", 1.2)
+	meeting_pose.rpc(boss.slot)
+	return true
+
+
+func meeting_target(boss: Actor) -> Actor:
+	var best: Actor = null
+	var best_d := Rules.TIGER_MEETING_RANGE
+	for a in actors.values():
+		var e := a as Actor
+		if not is_meeting_target(e):
+			continue
+		var d: float = e.global_position.distance_to(boss.global_position)
 		if d > best_d:
 			continue
 		if not _can_see(boss.global_position, e.global_position):
 			continue
 		best = e
 		best_d = d
-	if best == null:
-		return false
-	best.send_to_meeting(Rules.TIGER_MEETING_TIME, office.points["meeting"])
-	return true
+	return best
+
+
+func spawn_fx(path: String, pos: Vector2, dur := 0.7, sc := 0.1, lift := -28.0) -> void:
+	fx_event.rpc(path, pos.x, pos.y, dur, sc, lift)
+
+
+@rpc("authority", "call_local", "reliable")
+func fx_event(path: String, x: float, y: float, dur: float, sc: float, lift: float) -> void:
+	if office == null:
+		return
+	var burst = TigerBurstScript.new()
+	office.add_child(burst)
+	burst.setup(path, Vector2(x, y), dur, sc, lift)
+
+
+@rpc("authority", "call_local", "reliable")
+func meeting_pose(slot: int) -> void:
+	var boss := actors.get(slot) as Actor
+	if boss == null:
+		return
+	boss.ult_flash = Rules.TIGER_ULT_POSE
+
+
+@rpc("authority", "call_local", "reliable")
+func lunge_event(slot: int, dx: float, dy: float, on: bool) -> void:
+	var boss := actors.get(slot) as Actor
+	if boss == null:
+		return
+	if on:
+		boss.dash_dir = Vector2(dx, dy).normalized()
+		boss.lunge_left = Rules.TIGER_LUNGE_TIME
+		boss.lunge_hit = false
+	elif boss.lunge_left > 0.0:
+		boss.lunge_left = 0.0
+
+
+func _dist_point_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var den := ab.length_squared()
+	var t := 0.0 if den < 0.001 else clampf((p - a).dot(ab) / den, 0.0, 1.0)
+	return p.distance_to(a + ab * t)
+
+
+func _along_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var den := ab.length_squared()
+	if den < 0.001:
+		return 0.0
+	return clampf((p - a).dot(ab) / den, 0.0, 1.0)
 
 
 func _can_see(from: Vector2, to: Vector2) -> bool:
@@ -510,17 +1045,581 @@ func _can_see(from: Vector2, to: Vector2) -> bool:
 	return hit.is_empty()
 
 
+func paper_blocked(from: Vector2, to: Vector2) -> bool:
+	if office == null:
+		return false
+	var space := office.get_world_2d().direct_space_state
+	var q := PhysicsRayQueryParameters2D.create(from, to)
+	q.collision_mask = OfficeMap.PAPER_BLOCK
+	var hit := space.intersect_ray(q)
+	return not hit.is_empty()
+
+
+func report_hittable(emp: Actor) -> bool:
+	if emp == null or emp.kind != Rules.Kind.EMPLOYEE:
+		return false
+	if emp.emp_state in [Rules.EmpState.LEFT, Rules.EmpState.TALK, Rules.EmpState.MEETING, Rules.EmpState.CARRIED]:
+		return false
+	return true
+
+
+func report_victim(pos: Vector2) -> Actor:
+	var best: Actor = null
+	var best_d := Rules.REPORT_HIT_RADIUS
+	for a in actors.values():
+		var e := a as Actor
+		if not report_hittable(e):
+			continue
+		var d := pos.distance_to(e.global_position)
+		if d < best_d:
+			best_d = d
+			best = e
+	return best
+
+
+func try_throw_reports(boss: Actor, fan: bool) -> bool:
+	if boss == null or office == null:
+		return false
+	var aim := boss.facing_dir()
+	var origin := boss.throw_origin()
+	var dirs: Array[Vector2] = []
+	if fan:
+		var n := Rules.REPORT_FAN_COUNT
+		var spread := deg_to_rad(Rules.REPORT_FAN_SPREAD)
+		for i in n:
+			var t := 0.0 if n <= 1 else float(i) / float(n - 1)
+			dirs.append(aim.rotated(-spread * 0.5 + spread * t))
+	else:
+		dirs.append(aim)
+	for i in dirs.size():
+		var id := _next_report_id
+		_next_report_id += 1
+		var speed_mul := 1.0 if not fan else randf_range(0.92, 1.08)
+		spawn_report.rpc(id, origin.x, origin.y, dirs[i].x, dirs[i].y, speed_mul)
+	return true
+
+
+@rpc("authority", "call_local", "reliable")
+func spawn_report(id: int, x: float, y: float, dx: float, dy: float, speed_mul: float = 1.0) -> void:
+	if office == null:
+		return
+	var paper := WeeklyReportScript.new()
+	paper.setup(id, Vector2(x, y), Vector2(dx, dy), multiplayer.is_server(), speed_mul)
+	office.add_child(paper)
+	reports[id] = paper
+
+
+func end_report(id: int, slot: int) -> void:
+	if not multiplayer.is_server():
+		return
+	if not reports.has(id):
+		return
+	var paper = reports[id]
+	if paper == null or not paper.flying:
+		return
+	var hit_dir: Vector2 = paper.dir
+	if slot == -2:
+		finish_report.rpc(id, 99)
+		return
+	if slot >= 0:
+		var emp: Actor = actors.get(slot) as Actor
+		if emp != null and emp.apply_report_hit(hit_dir):
+			notify_report_hit.rpc(slot, hit_dir.x, hit_dir.y)
+		else:
+			slot = -1
+	finish_report.rpc(id, slot)
+
+
+@rpc("authority", "call_local", "reliable")
+func finish_report(id: int, slot: int) -> void:
+	var paper = reports.get(id)
+	if paper != null and is_instance_valid(paper):
+		paper.begin_burst(slot >= 0)
+	reports.erase(id)
+
+
+@rpc("authority", "reliable")
+func notify_report_hit(slot: int, dx: float, dy: float) -> void:
+	if multiplayer.is_server():
+		return
+	var emp: Actor = actors.get(slot) as Actor
+	if emp != null:
+		emp.apply_report_hit(Vector2(dx, dy))
+
+
+func _clear_reports() -> void:
+	for paper in reports.values():
+		if is_instance_valid(paper):
+			(paper as Node).queue_free()
+	reports.clear()
+
+
 func cast_kpi() -> void:
 	for a in actors.values():
 		var e := a as Actor
-		if e.kind == Rules.Kind.EMPLOYEE and e.emp_state != Rules.EmpState.LEFT:
-			e.hours += Rules.KPI_HOURS
+		if e.kind == Rules.Kind.EMPLOYEE and e.emp_state != Rules.EmpState.LEFT and e.emp_state != Rules.EmpState.CLOCKING:
+			e.lose_task()
 	show_kpi.rpc()
 
 
 @rpc("authority", "call_local", "reliable")
 func show_kpi() -> void:
 	kpi_popup.emit()
+
+
+# ── 线上事故系统 ──────────────────────────────────────────────
+
+func cast_incident(boss: Actor) -> bool:
+	if incident_active:
+		return false
+	# 找进度最高的员工作为第一责任人
+	var best: Actor = null
+	var best_done := -1
+	for a in actors.values():
+		var e := a as Actor
+		if e.kind != Rules.Kind.EMPLOYEE:
+			continue
+		if e.emp_state == Rules.EmpState.LEFT or e.emp_state == Rules.EmpState.CLOCKING:
+			continue
+		if e.tasks_done > best_done:
+			best_done = e.tasks_done
+			best = e
+	if best == null:
+		return false
+	# 随机选一个事故终端位置
+	incident_terminal_pos = _incident_terminal_spots[randi() % _incident_terminal_spots.size()]
+	incident_active = true
+	incident_left = Rules.INCIDENT_DURATION
+	incident_blame_slot = best.slot
+	incident_fixed = false
+	incident_assist_count = 0
+	# 标记责任人
+	for a in actors.values():
+		var e := a as Actor
+		e.is_blame_target = (e.slot == best.slot)
+		e.fixing = false
+		e.fix_progress = 0.0
+		e.blamed_once = false
+	notify_incident_start.rpc(best.slot, incident_terminal_pos.x, incident_terminal_pos.y)
+	return true
+
+
+func _tick_incident(delta: float) -> void:
+	incident_left -= delta
+	# 帮修 Bug 的人会减少时长
+	# 检查正在修 Bug 的人
+	for a in actors.values():
+		var e := a as Actor
+		if not e.fixing:
+			continue
+		if e.kind != Rules.Kind.EMPLOYEE:
+			continue
+		if e.emp_state == Rules.EmpState.LEFT or e.emp_state == Rules.EmpState.TALK or e.emp_state == Rules.EmpState.MEETING:
+			e.fixing = false
+			e.fix_progress = 0.0
+			continue
+		# 检查是否还在终端附近
+		if e.global_position.distance_to(incident_terminal_pos) > Rules.INTERACT_RANGE + 40.0:
+			e.fixing = false
+			e.fix_progress = 0.0
+			continue
+		# 移动会中断修 Bug
+		if e.input_dir.length() > 0.12:
+			e.fixing = false
+			e.fix_progress = 0.0
+			continue
+		var fix_dur := Rules.INCIDENT_FIX_TIME if e.is_blame_target else Rules.INCIDENT_FIX_TIME * 0.6
+		e.fix_progress = minf(1.0, e.fix_progress + delta / fix_dur)
+		e.velocity = Vector2.ZERO
+		if e.fix_progress >= 1.0:
+			_complete_fix(e)
+			return
+	if incident_left <= 0.0:
+		_end_incident(false)
+
+
+func _complete_fix(fixer: Actor) -> void:
+	var is_assist := not fixer.is_blame_target
+	fixer.fixing = false
+	fixer.fix_progress = 0.0
+	if is_assist:
+		incident_assist_count += 1
+		# 帮修减少事故剩余时间
+		incident_left = maxf(0.0, incident_left - Rules.INCIDENT_ASSIST_REDUCE)
+		fixer.energy_cells = mini(Rules.ENERGY_CELLS, fixer.energy_cells + Rules.INCIDENT_FIX_ENERGY)
+		fixer._refresh_legacy()
+		fixer.say(Rules.INCIDENT_ASSIST_QUIPS[randi() % Rules.INCIDENT_ASSIST_QUIPS.size()], 1.3)
+		notify_fix_done.rpc(fixer.slot, true)
+		if incident_left <= 0.0:
+			_end_incident(true)
+	else:
+		# 责任人修完，事故直接结束
+		fixer.energy_cells = mini(Rules.ENERGY_CELLS, fixer.energy_cells + Rules.INCIDENT_FIX_ENERGY)
+		fixer._refresh_legacy()
+		fixer.say(Rules.INCIDENT_FIX_QUIPS[randi() % Rules.INCIDENT_FIX_QUIPS.size()], 1.5)
+		notify_fix_done.rpc(fixer.slot, false)
+		_end_incident(true)
+
+
+func _end_incident(fixed: bool) -> void:
+	incident_active = false
+	incident_fixed = fixed
+	if not fixed:
+		# 责任人未修复，惩罚
+		var blame_actor := actors.get(incident_blame_slot) as Actor
+		if blame_actor != null and blame_actor.emp_state != Rules.EmpState.LEFT:
+			blame_actor.lose_task()
+			blame_actor.lose_task()
+			blame_actor.stand_lock = maxf(blame_actor.stand_lock, 2.0)
+			blame_actor.say(Rules.INCIDENT_FAIL_QUIPS[randi() % Rules.INCIDENT_FAIL_QUIPS.size()], 1.5)
+	# 清理所有人状态
+	for a in actors.values():
+		var e := a as Actor
+		e.is_blame_target = false
+		e.fixing = false
+		e.fix_progress = 0.0
+	notify_incident_end.rpc(fixed, incident_blame_slot)
+	incident_blame_slot = -1
+	incident_left = 0.0
+
+
+func try_start_fix(emp: Actor) -> bool:
+	if not incident_active or emp.fixing:
+		return false
+	if emp.emp_state != Rules.EmpState.WALK:
+		return false
+	if emp.stand_lock > 0.0 or emp.carried_by >= 0:
+		return false
+	if emp.global_position.distance_to(incident_terminal_pos) > Rules.INTERACT_RANGE:
+		return false
+	emp._dismount_bike()
+	emp.fixing = true
+	emp.fix_progress = 0.0
+	emp.velocity = Vector2.ZERO
+	emp.say("开始排查…", 1.0)
+	return true
+
+
+func try_pass_blame(from: Actor) -> bool:
+	if not incident_active or not from.is_blame_target:
+		return false
+	# 找最近的可接锅员工
+	var best: Actor = null
+	var best_d := 120.0
+	for a in actors.values():
+		var e := a as Actor
+		if e == from or e.kind != Rules.Kind.EMPLOYEE:
+			continue
+		if e.emp_state == Rules.EmpState.LEFT or e.emp_state == Rules.EmpState.CLOCKING:
+			continue
+		if e.blamed_once:
+			continue
+		if e.emp_state == Rules.EmpState.TALK or e.emp_state == Rules.EmpState.MEETING:
+			continue
+		var d := from.global_position.distance_to(e.global_position)
+		if d < best_d:
+			best_d = d
+			best = e
+	if best == null:
+		from.say("附近没人能接锅", 0.9)
+		return false
+	# Boss 在场不能甩
+	if is_watched(from):
+		from.say("老板盯着，甩不掉", 0.9)
+		return false
+	# 甩锅成功
+	from.is_blame_target = false
+	from.blamed_once = true
+	best.is_blame_target = true
+	best.blamed_once = true
+	incident_blame_slot = best.slot
+	from.say(Rules.INCIDENT_PASS_QUIPS[randi() % Rules.INCIDENT_PASS_QUIPS.size()], 1.3)
+	best.say(Rules.INCIDENT_BLAME_QUIPS[randi() % Rules.INCIDENT_BLAME_QUIPS.size()], 1.3)
+	notify_blame_pass.rpc(from.slot, best.slot)
+	return true
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_incident_start(blame_slot: int, tx: float, ty: float) -> void:
+	incident_active = true
+	incident_blame_slot = blame_slot
+	incident_terminal_pos = Vector2(tx, ty)
+	incident_left = Rules.INCIDENT_DURATION
+	for a in actors.values():
+		var e := a as Actor
+		e.is_blame_target = (e.slot == blame_slot)
+		e.fixing = false
+		e.fix_progress = 0.0
+	incident_started.emit(blame_slot)
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_incident_end(fixed: bool, blame_slot: int) -> void:
+	incident_active = false
+	for a in actors.values():
+		var e := a as Actor
+		e.is_blame_target = false
+		e.fixing = false
+		e.fix_progress = 0.0
+	incident_ended.emit(fixed, blame_slot)
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_blame_pass(from_slot: int, to_slot: int) -> void:
+	if actors.has(from_slot):
+		(actors[from_slot] as Actor).is_blame_target = false
+	if actors.has(to_slot):
+		(actors[to_slot] as Actor).is_blame_target = true
+	incident_blame_slot = to_slot
+	blame_passed.emit(from_slot, to_slot)
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_fix_done(slot: int, is_assist: bool) -> void:
+	fix_completed.emit(slot, is_assist)
+
+
+# ═══════════════════════════════════════════════
+# 随机事件系统
+# ═══════════════════════════════════════════════
+
+func _reset_event_state() -> void:
+	event_active = ""
+	event_left = 0.0
+	event_data = {}
+	_event_timer = 0.0
+	_event_count = 0
+	_event_used.clear()
+	anon_reveal_slot = -1
+	anon_reveal_left = 0.0
+	blackout_active = false
+	delivery_spots.clear()
+	intranet_down = false
+	intranet_boost_left = 0.0
+
+
+func _tick_random_events(delta: float) -> void:
+	var max_events := Rules.EVENT_MAX_PER_SHORT if short_match else Rules.EVENT_MAX_PER_MATCH
+	if _event_count >= max_events:
+		_tick_ongoing_effects(delta)
+		return
+	if event_active != "":
+		_tick_active_event(delta)
+		return
+	if elapsed < Rules.EVENT_FIRST_DELAY:
+		return
+	if incident_active:
+		return
+	_event_timer -= delta
+	if _event_timer <= 0.0:
+		_trigger_random_event()
+	_tick_ongoing_effects(delta)
+
+
+func _tick_ongoing_effects(delta: float) -> void:
+	if anon_reveal_left > 0.0:
+		anon_reveal_left -= delta
+		if anon_reveal_left <= 0.0:
+			anon_reveal_slot = -1
+	if intranet_boost_left > 0.0:
+		intranet_boost_left -= delta
+		if intranet_boost_left <= 0.0:
+			intranet_boost_left = 0.0
+
+
+func _pick_random_event() -> String:
+	var pool := _event_pool.duplicate()
+	for used in _event_used:
+		pool.erase(used)
+	if pool.is_empty():
+		_event_used.clear()
+		pool = _event_pool.duplicate()
+	var total := 0
+	for e in pool:
+		total += _event_weights.get(e, 10)
+	var r := randi() % total
+	var acc := 0
+	for e in pool:
+		acc += _event_weights.get(e, 10)
+		if r < acc:
+			return e
+	return pool[-1]
+
+
+func _trigger_random_event() -> void:
+	var ev := _pick_random_event()
+	_event_used.append(ev)
+	_event_count += 1
+	match ev:
+		"anon_report":
+			_start_anon_report()
+		"blackout":
+			_start_blackout()
+		"delivery":
+			_start_delivery()
+		"intranet_down":
+			_start_intranet_down()
+	_event_timer = randf_range(Rules.EVENT_MIN_INTERVAL, Rules.EVENT_MAX_INTERVAL)
+
+
+func _tick_active_event(delta: float) -> void:
+	event_left -= delta
+	match event_active:
+		"blackout":
+			if event_left <= 0.0:
+				_end_blackout()
+		"delivery":
+			_tick_delivery(delta)
+		"intranet_down":
+			if event_left <= 0.0:
+				_end_intranet_down()
+
+
+# ── 匿名举报 ──
+
+func _start_anon_report() -> void:
+	var candidates := []
+	for s in Rules.EMPLOYEE_SLOTS:
+		if actors.has(s):
+			var a := actors[s] as Actor
+			if a.emp_state != Rules.EmpState.LEFT and a.emp_state != Rules.EmpState.WORK:
+				candidates.append(s)
+	if candidates.is_empty():
+		for s in Rules.EMPLOYEE_SLOTS:
+			if actors.has(s):
+				candidates.append(s)
+	if candidates.is_empty():
+		_event_timer = 10.0
+		_event_count -= 1
+		return
+	var target: int = candidates[randi() % candidates.size()]
+	anon_reveal_slot = target
+	anon_reveal_left = Rules.ANON_REPORT_REVEAL
+	notify_random_event.rpc("anon_report", {"slot": target})
+
+
+# ── 停电 ──
+
+func _start_blackout() -> void:
+	event_active = "blackout"
+	event_left = Rules.BLACKOUT_DURATION
+	blackout_active = true
+	for s in Rules.EMPLOYEE_SLOTS:
+		if actors.has(s):
+			var a := actors[s] as Actor
+			if a.emp_state == Rules.EmpState.WORK or a.emp_state == Rules.EmpState.SLACK:
+				if a.occupy_id != "" and office:
+					office.free_spot(a.occupy_id, s)
+				a.occupy_id = ""
+				a.emp_state = Rules.EmpState.WALK
+				a.velocity = Vector2.ZERO
+				a.tasking = false
+	notify_random_event.rpc("blackout", {"duration": Rules.BLACKOUT_DURATION})
+
+func _end_blackout() -> void:
+	blackout_active = false
+	event_active = ""
+	event_left = 0.0
+	notify_random_event_end.rpc("blackout")
+
+
+# ── 外卖到了 ──
+
+var _delivery_spawn_spots := [
+	Vector2(200, 400),
+	Vector2(400, 400),
+	Vector2(600, 400),
+	Vector2(1000, 400),
+]
+
+func _start_delivery() -> void:
+	event_active = "delivery"
+	event_left = Rules.DELIVERY_DURATION
+	delivery_spots.clear()
+	var spots := _delivery_spawn_spots.duplicate()
+	spots.shuffle()
+	for i in range(mini(Rules.DELIVERY_COUNT, spots.size())):
+		delivery_spots[i] = spots[i]
+	var spot_data := {}
+	for k in delivery_spots:
+		spot_data[str(k)] = {"x": delivery_spots[k].x, "y": delivery_spots[k].y}
+	notify_random_event.rpc("delivery", {"spots": spot_data, "duration": Rules.DELIVERY_DURATION})
+
+func _tick_delivery(_delta: float) -> void:
+	if event_left <= 0.0 or delivery_spots.is_empty():
+		_end_delivery()
+
+func _end_delivery() -> void:
+	delivery_spots.clear()
+	event_active = ""
+	event_left = 0.0
+	notify_random_event_end.rpc("delivery")
+
+func try_grab_delivery(slot: int) -> bool:
+	if delivery_spots.is_empty():
+		return false
+	var a := actors.get(slot) as Actor
+	if a == null:
+		return false
+	var best_key := -1
+	var best_dist := 999999.0
+	for k in delivery_spots:
+		var d: float = a.position.distance_to(delivery_spots[k])
+		if d < 80.0 and d < best_dist:
+			best_dist = d
+			best_key = k
+	if best_key < 0:
+		return false
+	delivery_spots.erase(best_key)
+	var is_boss := (slot == Rules.Slot.BOSS)
+	if not is_boss:
+		a.energy_cells = mini(a.energy_cells + 2, Rules.ENERGY_CELLS)
+		a.delivery_boost_left = Rules.DELIVERY_BOOST_TIME
+	notify_delivery_grab.rpc(slot, is_boss)
+	return true
+
+
+# ── 内网崩了 ──
+
+func _start_intranet_down() -> void:
+	event_active = "intranet_down"
+	event_left = Rules.INTRANET_DURATION
+	intranet_down = true
+	for s in Rules.EMPLOYEE_SLOTS:
+		if actors.has(s):
+			var a := actors[s] as Actor
+			if a.emp_state == Rules.EmpState.WORK or a.emp_state == Rules.EmpState.SLACK:
+				if a.occupy_id != "" and office:
+					office.free_spot(a.occupy_id, s)
+				a.occupy_id = ""
+				a.emp_state = Rules.EmpState.WALK
+				a.velocity = Vector2.ZERO
+				a.tasking = false
+	notify_random_event.rpc("intranet_down", {"duration": Rules.INTRANET_DURATION})
+
+func _end_intranet_down() -> void:
+	intranet_down = false
+	intranet_boost_left = Rules.INTRANET_BOOST_TIME
+	event_active = ""
+	event_left = 0.0
+	notify_random_event_end.rpc("intranet_down")
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_random_event(event_name: String, data: Dictionary) -> void:
+	random_event.emit(event_name, data)
+
+@rpc("authority", "call_local", "reliable")
+func notify_random_event_end(event_name: String) -> void:
+	random_event_ended.emit(event_name)
+
+@rpc("authority", "call_local", "reliable")
+func notify_delivery_grab(slot: int, is_boss: bool) -> void:
+	if actors.has(slot):
+		var a := actors[slot] as Actor
+		if not is_boss:
+			a.energy_cells = mini(a.energy_cells + 2, Rules.ENERGY_CELLS)
+			a.delivery_boost_left = Rules.DELIVERY_BOOST_TIME
 
 
 func on_clock_out(slot: int) -> void:
@@ -530,15 +1629,18 @@ func on_clock_out(slot: int) -> void:
 
 
 func _all_punched() -> bool:
-	for s in [Rules.Slot.EMP_A, Rules.Slot.EMP_B, Rules.Slot.EMP_C, Rules.Slot.EMP_D]:
+	var any := false
+	for s in Rules.EMPLOYEE_SLOTS:
 		if not actors.has(s):
-			return false
+			continue
+		any = true
 		if (actors[s] as Actor).emp_state != Rules.EmpState.LEFT:
 			return false
-	return true
+	return any
 
 
 func _finish() -> void:
+	_clear_reports()
 	for actor in actors.values():
 		release_actor_carry(actor)
 	if phase == "result":
@@ -547,7 +1649,9 @@ func _finish() -> void:
 	phase = "result"
 	var punched := 0
 	var people: Array = []
-	for s in [Rules.Slot.EMP_A, Rules.Slot.EMP_B, Rules.Slot.EMP_C, Rules.Slot.EMP_D]:
+	for s in Rules.EMPLOYEE_SLOTS:
+		if not actors.has(s):
+			continue
 		var actor: Actor = actors[s]
 		var win := actor.emp_state == Rules.EmpState.LEFT
 		if win:
@@ -559,9 +1663,9 @@ func _finish() -> void:
 			"time": clock_log.get(s, -1.0),
 		})
 	var boss_verdict := "胜"
-	if punched == 3:
+	if punched == 2:
 		boss_verdict = "平"
-	elif punched >= 4:
+	elif punched >= 3:
 		boss_verdict = "负"
 	result = {"punched": punched, "boss": boss_verdict, "people": people}
 	finish_match.rpc(result)
@@ -601,7 +1705,7 @@ func sync_lobby(p_slots: Dictionary, p_names: Dictionary, p_short: bool, p_phase
 
 
 func _on_peers() -> void:
-	if not multiplayer.is_server():
+	if Net.go_match() or not Net.is_enet_server():
 		return
 	var alive: Dictionary = {}
 	alive[1] = true
@@ -656,9 +1760,233 @@ func reset_lobby() -> void:
 	countdown = 0.0
 	clock_log.clear()
 	result = {}
+	_reset_event_state()
 	for a in actors.values():
 		if is_instance_valid(a):
 			(a as Node).queue_free()
 	actors.clear()
 	bots.clear()
+	_clear_reports()
 	lobby_changed.emit()
+
+
+func apply_go_lobby(data: Dictionary, captain: int) -> void:
+	var next_phase := str(data.get("phase", phase))
+	slots = {
+		Rules.Slot.BOSS: -1,
+		Rules.Slot.EMP_A: -1,
+		Rules.Slot.EMP_B: -1,
+		Rules.Slot.EMP_C: -1,
+		Rules.Slot.EMP_D: -1,
+	}
+	var raw_slots: Dictionary = data.get("slots", {})
+	for k in raw_slots.keys():
+		slots[int(k)] = int(raw_slots[k])
+	names = {}
+	var raw_names: Dictionary = data.get("names", {})
+	for k in raw_names.keys():
+		names[int(k)] = str(raw_names[k])
+	short_match = bool(data.get("short", short_match))
+	if next_phase == "lobby" and phase != "lobby":
+		_clear_actors()
+	var prev := phase
+	phase = next_phase
+	playing = phase == "playing" or phase == "countdown"
+	if prev == "lobby" and phase != "lobby" and phase != "result":
+		match_started.emit()
+	lobby_changed.emit()
+
+
+func apply_go_snapshot(snap: Dictionary) -> void:
+	var prev := phase
+	phase = str(snap.get("phase", phase))
+	elapsed = float(snap.get("elapsed", elapsed))
+	time_left = float(snap.get("left", time_left))
+	countdown = float(snap.get("cd", countdown))
+	playing = phase == "playing" or phase == "countdown"
+	if office:
+		var occ: Dictionary = snap.get("occupiers", {})
+		for k in occ.keys():
+			office.occupiers[str(k)] = int(occ[k])
+		var doors: Array = snap.get("doors", [])
+		for d in doors:
+			office._sync_door(str(d.get("id", "")), bool(d.get("closed", false)), bool(d.get("opening", false)), float(d.get("open_left", 0.0)))
+	# 事故状态同步
+	var was_active := incident_active
+	incident_active = bool(snap.get("incident_active", false))
+	incident_left = float(snap.get("incident_left", 0.0))
+	incident_blame_slot = int(snap.get("incident_blame", -1))
+	incident_terminal_pos = Vector2(float(snap.get("incident_x", 0.0)), float(snap.get("incident_y", 0.0)))
+	# 随机事件状态同步
+	event_active = str(snap.get("event_active", ""))
+	event_left = float(snap.get("event_left", 0.0))
+	anon_reveal_slot = int(snap.get("anon_reveal_slot", -1))
+	anon_reveal_left = float(snap.get("anon_reveal_left", 0.0))
+	blackout_active = bool(snap.get("blackout_active", false))
+	intranet_down = bool(snap.get("intranet_down", false))
+	intranet_boost_left = float(snap.get("intranet_boost_left", 0.0))
+	# delivery spots from Go snapshot
+	delivery_spots.clear()
+	var dspots: Dictionary = snap.get("delivery_spots", {})
+	for k in dspots.keys():
+		var arr: Array = dspots[k]
+		if arr.size() >= 2:
+			delivery_spots[int(k)] = Vector2(float(arr[0]), float(arr[1]))
+	var list: Array = snap.get("actors", [])
+	for item in list:
+		_ingest_go_actor(item)
+	if prev == "lobby" and phase != "lobby" and phase != "result":
+		match_started.emit()
+	if phase == "result" and prev != "result":
+		playing = false
+		match_ended.emit()
+	hud_dirty.emit()
+
+
+func apply_go_event(ev: Dictionary) -> void:
+	var kind := str(ev.get("kind", ""))
+	match kind:
+		"talk":
+			talked.emit(int(ev.get("slot", -1)))
+		"catch":
+			caught.emit(int(ev.get("slot", -1)), bool(ev.get("repeat", false)), float(ev.get("add_hours", 0.0)))
+		"rescue":
+			rescued.emit(int(ev.get("slot", -1)), int(ev.get("by_slot", -1)))
+		"kpi":
+			kpi_popup.emit()
+		"incident_start":
+			notify_incident_start(int(ev.get("slot", -1)), float(ev.get("x", 0.0)), float(ev.get("y", 0.0)))
+		"incident_end":
+			notify_incident_end(bool(ev.get("on", false)), int(ev.get("slot", -1)))
+		"blame_pass":
+			notify_blame_pass(int(ev.get("from", -1)), int(ev.get("to", -1)))
+		"fix_done":
+			notify_fix_done(int(ev.get("slot", -1)), bool(ev.get("on", false)))
+		"result":
+			result = ev.get("result", {})
+			playing = false
+			phase = "result"
+			match_ended.emit()
+		"bike":
+			bike_event(int(ev.get("slot", -1)), bool(ev.get("on", false)))
+		"carry":
+			carry_event(
+				int(ev.get("slot", -1)),
+				int(ev.get("passenger", -1)),
+				bool(ev.get("on", false)),
+				Vector2(float(ev.get("x", 0.0)), float(ev.get("y", 0.0))),
+				bool(ev.get("interrupted", false)),
+				float(ev.get("facing", 1.0))
+			)
+		"anon_report":
+			random_event.emit("anon_report", {"slot": int(ev.get("slot", -1))})
+		"blackout":
+			blackout_active = true
+			random_event.emit("blackout", {"duration": Rules.BLACKOUT_DURATION})
+		"blackout_end":
+			blackout_active = false
+			random_event_ended.emit("blackout")
+		"delivery":
+			random_event.emit("delivery", {})
+		"delivery_end":
+			delivery_spots.clear()
+			random_event_ended.emit("delivery")
+		"delivery_grab":
+			var s := int(ev.get("slot", -1))
+			var got_food := bool(ev.get("on", false))
+			if got_food and actors.has(s):
+				var a := actors[s] as Actor
+				a.energy_cells = mini(a.energy_cells + 2, Rules.ENERGY_CELLS)
+				a.delivery_boost_left = Rules.DELIVERY_BOOST_TIME
+		"intranet_down":
+			intranet_down = true
+			random_event.emit("intranet_down", {"duration": Rules.INTRANET_DURATION})
+		"intranet_end":
+			intranet_down = false
+			random_event_ended.emit("intranet_down")
+		"bros":
+			bros_event(
+				int(ev.get("slot", -1)),
+				int(ev.get("hp", 0)),
+				float(ev.get("left", 0.0)),
+				int(ev.get("kind", 2)),
+				float(ev.get("x", 0.0)),
+				float(ev.get("y", 0.0))
+			)
+
+
+func _ingest_go_actor(item: Dictionary) -> void:
+	var slot := int(item.get("slot", -1))
+	if slot < 0 or office == null:
+		return
+	var actor: Actor = actors.get(slot) as Actor
+	if actor == null or not is_instance_valid(actor):
+		if office.has_node("actor_%d" % slot):
+			office.get_node("actor_%d" % slot).queue_free()
+		actor = _actor_scene.instantiate()
+		actor.setup(slot, int(item.get("peer", 0)), str(item.get("name", "")))
+		office.add_child(actor, true)
+		actors[slot] = actor
+		actor.global_position = Vector2(float(item.get("x", 0.0)), float(item.get("y", 0.0)))
+		actor._remote_pos = actor.global_position
+	actor.peer_id = int(item.get("peer", actor.peer_id))
+	actor.display_name = str(item.get("name", actor.display_name))
+	actor.apply_snapshot(
+		float(item.get("x", 0.0)),
+		float(item.get("y", 0.0)),
+		int(item.get("state", 0)),
+		float(item.get("hours", 0.0)),
+		float(item.get("energy", 0.0)),
+		bool(item.get("visible", true)),
+		float(item.get("mcd", 0.0)),
+		float(item.get("kcd", 0.0)),
+		float(item.get("dcd", 0.0)),
+		float(item.get("talk", 0.0)),
+		float(item.get("rescue", 0.0)),
+		float(item.get("bike", 0.0))
+	)
+	actor.occupy_id = str(item.get("occupy", ""))
+	actor.carrying_slot = int(item.get("carrying", -1))
+	actor.carried_by = int(item.get("carried_by", -1))
+	actor.stand_lock = float(item.get("stand_lock", 0.0))
+	actor.fly_left = float(item.get("fly", 0.0))
+	actor.fly_cd = float(item.get("flycd", actor.fly_cd))
+	var fly_dx := float(item.get("fly_dx", 0.0))
+	var fly_dy := float(item.get("fly_dy", 0.0))
+	if Vector2(fly_dx, fly_dy).length() > 0.12:
+		actor.fly_dir = Vector2(fly_dx, fly_dy).normalized()
+	if actor.fly_left > 0.0:
+		actor.collision_mask = 0
+		actor.z_index = 8
+	else:
+		actor.collision_mask = 1
+		actor.z_index = 0
+	var fx := float(item.get("facing_x", 0.0))
+	if abs(fx) > 0.01:
+		actor._facing = Vector2(fx, actor._facing.y)
+	if actor.name_label:
+		actor.name_label.text = actor.display_name
+
+
+func go_clear_to_lobby() -> void:
+	playing = false
+	phase = "lobby"
+	countdown = 0.0
+	clock_log.clear()
+	result = {}
+	if office != null:
+		for k in office.occupiers.keys():
+			office.occupiers[k] = -1
+	for s in slots.keys():
+		slots[s] = -1
+	names.clear()
+	_clear_actors()
+	lobby_changed.emit()
+
+
+func _clear_actors() -> void:
+	for a in actors.values():
+		if is_instance_valid(a):
+			(a as Node).queue_free()
+	actors.clear()
+	bots.clear()

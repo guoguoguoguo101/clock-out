@@ -95,7 +95,7 @@ func slam() -> void:
 	closed = true
 	opening = false
 	open_left = 0.0
-	collision_layer = 1
+	collision_layer = OfficeMap.WALL | OfficeMap.PAPER_BLOCK
 	blocker.disabled = false
 	_apply_visual()
 
@@ -131,7 +131,7 @@ func apply_state(p_closed: bool, p_opening: bool, p_left: float) -> void:
 	closed = p_closed
 	opening = p_opening
 	open_left = p_left
-	collision_layer = 1 if closed else 0
+	collision_layer = (OfficeMap.WALL | OfficeMap.PAPER_BLOCK) if closed else 0
 	blocker.disabled = not closed
 	_apply_visual()
 

@@ -7,10 +7,7 @@ func _ready() -> void:
 		if arg == "--server" or arg == "--dedicated":
 			dedicated = true
 	if dedicated:
-		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MINIMIZED)
-		var err := Net.host_dedicated()
-		if err != OK:
-			push_error(Net.last_error)
-			get_tree().quit(1)
-			return
+		push_error("联机权威已改到 Go。请运行 server.bat 或 go run ./cmd/clockout-server")
+		get_tree().quit(1)
+		return
 	get_tree().change_scene_to_file.call_deferred("res://src/game/Game.tscn")

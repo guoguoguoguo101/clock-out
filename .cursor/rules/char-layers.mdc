@@ -1,0 +1,13 @@
+---
+description: 新增或改角色素材时走分层 base + 配饰流程
+globs: assets/game/chars/**/*.{png,webp}
+alwaysApply: false
+---
+
+# 角色分层
+
+改 `assets/game/chars/` 下的角色图之前，先读并遵循：
+
+`.cursor/skills/char-layers/SKILL.md`
+
+身体是 base；围巾单独一层；马桶和车是公用道具，不要画进角色帧。拆层用 `python tools/split_char_layers.py`，不要再复制一份皮肤专用脚本。改完跑 `python tools/build_asset_preview.py`。

@@ -1,0 +1,13 @@
+---
+description: 生成或改老板皮肤、短扑/开会技能时走 boss skill
+globs: assets/game/chars/tiger/**,assets/concept/boss-*/**,src/bot/BossBot.gd
+alwaysApply: false
+---
+
+# 老板
+
+改老板图、概念图或老板 AI 之前，先读并遵循：
+
+`.cursor/skills/boss/SKILL.md`
+
+概念先给用户挑再入库。身体 + 青领带拆层，不要画员工那套马桶/工位。玩法默认继承现有短扑→势力→开会套。

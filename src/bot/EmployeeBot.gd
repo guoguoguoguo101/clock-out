@@ -22,23 +22,58 @@ func tick(delta: float) -> void:
 	if actor.emp_state == Rules.EmpState.MEETING or actor.emp_state == Rules.EmpState.TALK:
 		actor.input_dir = Vector2.ZERO
 		return
+	# 事故期间，责任人 Bot 去修 Bug
+	if Match.incident_active and actor.is_blame_target and not actor.fixing:
+		_go(Match.incident_terminal_pos, delta)
+		if actor.global_position.distance_to(Match.incident_terminal_pos) < Rules.INTERACT_RANGE:
+			actor.want_interact = true
+		return
+	# 事故期间，非责任人有概率帮修
+	if Match.incident_active and not actor.is_blame_target and not actor.fixing and randf() < 0.003:
+		_go(Match.incident_terminal_pos, delta)
+		if actor.global_position.distance_to(Match.incident_terminal_pos) < Rules.INTERACT_RANGE:
+			actor.want_interact = true
+		return
+	if actor.fixing:
+		actor.input_dir = Vector2.ZERO
+		return
+	# 抢外卖
+	if not Match.delivery_spots.is_empty() and actor.energy_cells < 3:
+		var best_key := -1
+		var best_dist := 999999.0
+		for k in Match.delivery_spots:
+			var dd: float = actor.global_position.distance_to(Match.delivery_spots[k])
+			if dd < best_dist:
+				best_dist = dd
+				best_key = k
+		if best_key >= 0:
+			_go(Match.delivery_spots[best_key], delta)
+			if best_dist < 80.0:
+				actor.want_interact = true
+			return
 	think -= delta
 	if actor.rescue_left > 0.0:
 		actor.input_dir = Vector2.ZERO
 		return
-	if actor.emp_state == Rules.EmpState.COFFEE or actor.emp_state == Rules.EmpState.TOILET:
-		if actor.energy > 92.0:
-			actor.want_interact = true
-		return
-	if actor.emp_state == Rules.EmpState.WORK:
-		if actor.energy < 18.0:
-			actor.want_interact = true
-		elif actor.energy < 40.0 and think <= 0.0:
+	if actor.play_kind != "":
+		actor.input_dir = Vector2.ZERO
+		if think <= 0.0:
 			actor.want_slack = true
-			think = 2.0
+			think = 0.42
 		return
-	if actor.emp_state == Rules.EmpState.SLACK:
-		if actor.energy > 78.0:
+	if actor.emp_state == Rules.EmpState.TRADE:
+		return
+	if actor.tasking:
+		actor.input_dir = Vector2.ZERO
+		return
+	if actor.emp_state == Rules.EmpState.WORK or actor.emp_state == Rules.EmpState.SLACK:
+		if actor.energy_cells >= 1 and actor.emp_state == Rules.EmpState.WORK:
+			actor.want_interact = true
+			return
+		if actor.energy_cells <= 0:
+			actor.input_dir = Vector2.DOWN
+			return
+		if actor.emp_state == Rules.EmpState.SLACK:
 			actor.want_slack = true
 		return
 	var blocked = map.nearest_door(actor.global_position, 56.0)
@@ -52,7 +87,13 @@ func tick(delta: float) -> void:
 		if actor.global_position.distance_to(victim.global_position) < Rules.RESCUE_RANGE:
 			actor.want_interact = true
 		return
-	if actor.energy < 22.0:
+	if actor.energy_cells <= 0:
+		var loot := map.nearest_energy(actor.global_position, 2400.0)
+		if loot != "":
+			_go(map.energy_pos(loot), delta)
+			if actor.global_position.distance_to(map.energy_pos(loot)) < Rules.INTERACT_RANGE:
+				actor.want_interact = true
+			return
 		var id := map.nearest_free("coffee", actor.global_position)
 		if id == "":
 			id = map.nearest_free("toilet", actor.global_position)
@@ -61,8 +102,10 @@ func tick(delta: float) -> void:
 			if actor.global_position.distance_to(map.points[id]) < Rules.INTERACT_RANGE:
 				actor.want_interact = true
 			return
+		_go(map.points["corridor"], delta)
+		return
 	var seat_id := map.nearest_free("seat", actor.global_position)
-	if seat_id == "":
+	if seat_id == "" or Match.intranet_down or Match.blackout_active:
 		_go(map.points["corridor"], delta)
 		return
 	_go(map.points[seat_id], delta)
@@ -77,20 +120,12 @@ func _go(target: Vector2, _delta: float) -> void:
 
 
 func _find_rescue() -> Actor:
-	if actor.energy < 26.0 or actor.hours < 14.0:
+	if actor.energy_cells < 1 or actor.tasks_done >= 4:
 		return null
-	var best: Actor = null
-	var best_d := 520.0
 	for a in Match.actors.values():
 		var e := a as Actor
-		if e == actor or e.kind != Rules.Kind.EMPLOYEE:
+		if not Match.is_hold_target(e):
 			continue
-		if e.emp_state != Rules.EmpState.TALK:
-			continue
-		if Match.is_watched(e):
-			continue
-		var d := actor.global_position.distance_to(e.global_position)
-		if d < best_d:
-			best_d = d
-			best = e
-	return best
+		if actor.global_position.distance_to(e.global_position) < 420.0:
+			return e
+	return null

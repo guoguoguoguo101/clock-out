@@ -18,11 +18,11 @@ func run_checks() -> void:
 	await process_frame
 	var match_node = root.get_node("Match")
 	var rules = root.get_node("Rules")
-	game._pick_slot(rules.Slot.EMP_D)
+	game._pick_slot(rules.Slot.EMP_B)
 	game._enter_test_room()
 	await physics_frame
 	match_node.bots.clear()
-	var carrier = match_node.actors[rules.Slot.EMP_D]
+	var carrier = match_node.actors[rules.Slot.EMP_B]
 	var passenger = match_node.actors[rules.Slot.EMP_A]
 	var boss = match_node.actors[rules.Slot.BOSS]
 	carrier._stand_up()

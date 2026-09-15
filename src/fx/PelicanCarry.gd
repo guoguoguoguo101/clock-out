@@ -24,6 +24,11 @@ func pickup(passenger: Actor, from: Vector2) -> void:
 	_emit_feathers(14)
 	_play_swoop(true)
 
+func burst_fly() -> void:
+	burst = 0.55
+	_emit_feathers(12)
+	_play_swoop(true)
+
 func release() -> void:
 	burst = 0.5
 	_emit_feathers(10)
@@ -57,12 +62,16 @@ func _process(delta: float) -> void:
 	var actor := get_parent() as Actor
 	age += delta
 	burst = maxf(0.0, burst - delta)
-	if not multiplayer.is_server():
+	if not Net.is_enet_server():
 		actor.carry_left = maxf(0.0, actor.carry_left - delta)
 		actor.carry_windup = maxf(0.0, actor.carry_windup - delta)
 		actor.carry_recovery = maxf(0.0, actor.carry_recovery - delta)
 	trail_clock -= delta
-	if actor.carrying_slot >= 0 and actor.velocity.length() > 10.0 and trail_clock <= 0.0:
+	if actor.fly_left > 0.0 and trail_clock <= 0.0:
+		trail_clock = 0.06
+		var lift := actor._fly_height()
+		particles.append({"p": global_position + Vector2(0, -18.0 - lift), "v": -actor.fly_dir * 90.0 + Vector2(0, -28), "life": 0.5, "spin": age})
+	elif actor.carrying_slot >= 0 and actor.velocity.length() > 10.0 and trail_clock <= 0.0:
 		trail_clock = 0.08
 		particles.append({"p": global_position + Vector2(0, -18), "v": -actor.velocity * 0.15 + Vector2(0, -12), "life": 0.5, "spin": age})
 	for i in range(particles.size() - 1, -1, -1):

@@ -45,7 +45,7 @@
 <body>
 <main>
   <h1>角色 2D 精灵图</h1>
-  <p class="lead">小马、小兔子、牛、鹈鹕同一套扁平剪影。每个动作 4 帧，可切换角色看循环和单帧。</p>
+  <p class="lead">小马、小兔子、牛、鹈鹕、袋鼠同一套扁平剪影。每个动作 4 帧，可切换角色看循环和单帧。</p>
   <div class="tabs" id="tabs"></div>
 
   <h2>循环播放</h2>
@@ -74,6 +74,12 @@
   <h2>上厕所</h2>
   <div class="strip"><img id="strip-toilet" alt="上厕所条带"></div>
   <div class="row" id="toilet"></div>
+
+  <div id="ride-section">
+    <h2>骑车</h2>
+    <div class="strip"><img id="strip-ride" alt="骑车条带"></div>
+    <div class="row" id="ride"></div>
+  </div>
 </main>
 <script>
   const CHARS = [
@@ -81,6 +87,7 @@
     { id: "rabbit", name: "小兔子" },
     { id: "cow", name: "牛" },
     { id: "pelican", name: "鹈鹕" },
+    { id: "kangaroo", name: "袋鼠" },
   ];
   const GROUPS = {
     idle: ["idle_0","idle_1","idle_2","idle_3"],
@@ -89,12 +96,13 @@
     work: ["work_0","work_1","work_2","work_3"],
     sleep: ["sleep_0","sleep_1","sleep_2","sleep_3"],
     toilet: ["toilet_0","toilet_1","toilet_2","toilet_3"],
+    ride: ["ride_0","ride_1","ride_2","ride_3"],
   };
   const STRIP_FILE = {
-    idle: "idle", walk: "walk", run: "run", work: "work", sleep: "rest", toilet: "toilet"
+    idle: "idle", walk: "walk", run: "run", work: "work", sleep: "rest", toilet: "toilet", ride: "ride"
   };
-  const LABELS = { idle:"站立", walk:"走路", run:"奔跑", work:"工作", sleep:"休息", toilet:"上厕所" };
-  const FPS = { idle:4, walk:8, run:10, work:5, sleep:4, toilet:5 };
+  const LABELS = { idle:"站立", walk:"走路", run:"奔跑", work:"工作", sleep:"休息", toilet:"上厕所", ride:"骑车" };
+  const FPS = { idle:4, walk:8, run:10, work:5, sleep:4, toilet:5, ride:5 };
 
   let current = new URLSearchParams(location.search).get("char") || "horse";
   if (!CHARS.some(c => c.id === current)) current = "horse";
@@ -118,9 +126,17 @@
     return `sprites/${current}/${name}.png`;
   }
 
+  function groups() {
+    const g = { ...GROUPS };
+    if (current !== "kangaroo") delete g.ride;
+    return g;
+  }
+
   function render() {
     timers.splice(0).forEach(clearInterval);
-    Object.entries(GROUPS).forEach(([id, names]) => {
+    const rideSec = document.getElementById("ride-section");
+    if (rideSec) rideSec.style.display = current === "kangaroo" ? "" : "none";
+    Object.entries(groups()).forEach(([id, names]) => {
       document.getElementById(id).innerHTML = names.map(n =>
         `<figure><img src="${src(n)}" alt="${n}"><figcaption>${n}</figcaption></figure>`
       ).join("");
@@ -130,7 +146,7 @@
     });
     const play = document.getElementById("play");
     play.innerHTML = "";
-    Object.entries(GROUPS).forEach(([id, names]) => {
+    Object.entries(groups()).forEach(([id, names]) => {
       const stage = document.createElement("div");
       stage.className = "stage";
       stage.innerHTML = `<div class="box"><img alt="${id}"></div><p>${LABELS[id]}</p>`;

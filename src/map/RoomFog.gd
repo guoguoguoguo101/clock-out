@@ -25,7 +25,7 @@ func _process(delta: float) -> void:
 	if map == null:
 		visible = false
 		return
-	if Match.phase != "playing" and Match.phase != "countdown":
+	if Match == null or (Match.phase != "playing" and Match.phase != "countdown"):
 		visible = false
 		return
 	var me: Actor = Match.actors.get(Match.my_slot()) as Actor

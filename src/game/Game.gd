@@ -1,8 +1,13 @@
 extends Node2D
 
 const MeterScript := preload("res://src/ui/Meter.gd")
+const CellMeterScript := preload("res://src/ui/CellMeter.gd")
+const EnergyPlayScript := preload("res://src/ui/EnergyPlay.gd")
 const LobbyHauntScript := preload("res://src/ui/LobbyHaunt.gd")
+const LobbyPointerScript := preload("res://src/ui/LobbyPointer.gd")
 const HauntTextScript := preload("res://src/ui/HauntText.gd")
+const StockDeskScript := preload("res://src/ui/StockDesk.gd")
+const BODY_SHADER := preload("res://src/actor/body.gdshader")
 
 var office: OfficeMap
 var camera: Camera2D
@@ -12,18 +17,18 @@ var hud: Control
 var result_panel: Control
 var kpi_label: Label
 var status_label: Label
-var slot_box: HBoxContainer
+var slot_box: Control
 var name_edit: LineEdit
 var ip_edit: LineEdit
 var short_check: CheckBox
 var hint_label: Label
 var hours_bar
 var energy_bar
-var hours_num: Label
-var energy_num: Label
+var energy_play
 var time_label: Label
 var state_label: Label
 var you_role: Label
+var power_pips_ui: Array = []
 var prompt_label: Label
 var lamps: HBoxContainer
 var you_label: Label
@@ -42,10 +47,27 @@ var mate_box: Array[ColorRect] = []
 var mate_lab: Array[Label] = []
 var mate_snow: Array[ColorRect] = []
 var watch_label: Label
+var incident_veil: ColorRect
+var incident_banner: Label
+var incident_timer_label: Label
+var incident_terminal_marker: ColorRect
 var home_page: Control
 var join_page: Control
+
+# 随机事件 UI
+var event_banner: Label
+var event_timer_label: Label
+var blackout_veil: ColorRect
+var anon_arrow: Node2D
 var char_page: Control
 var haunt
+var pointer
+var room_code_edit: LineEdit
+var room_list_box: VBoxContainer
+var enter_char_btn: Button
+var join_status: Label
+var fill_bots_btn: Button
+var stock_desk
 
 var wanted_slot := Rules.Slot.EMP_A
 var _pulse_interact := false
@@ -53,12 +75,20 @@ var _pulse_slack := false
 var _pulse_meeting := false
 var _pulse_kpi := false
 var _pulse_dash := false
+var _pulse_report := false
+var _pulse_fan := false
+var _pulse_incident := false
+var _pulse_blame := false
+var _pulse_fly := false
 var _e_down := false
 var _f_down := false
 var _q_down := false
 var _r_down := false
 var _shift_down := false
+var _g_down := false
+var _t_down := false
 var _esc_down := false
+var _space_down := false
 var _cam_z := 1.1
 var _shake := 0.0
 var _catch_t := 0.0
@@ -68,19 +98,10 @@ var _cam_punch := 0.0
 var _breath_t := 0.0
 var _help_t := 0.0
 var _last_state := -1
+var _go_input_t := 0.0
 
 
 func _ready() -> void:
-	var dedicated := false
-	for arg in OS.get_cmdline_user_args():
-		if arg == "--server" or arg == "--dedicated":
-			dedicated = true
-	if dedicated:
-		var err := Net.host_dedicated()
-		if err != OK:
-			push_error(Net.last_error)
-			get_tree().quit(1)
-			return
 	_build_world()
 	_build_ui()
 	get_viewport().size_changed.connect(_fit_camera)
@@ -93,18 +114,25 @@ func _ready() -> void:
 	Match.caught.connect(_on_caught)
 	Match.talked.connect(_on_talked)
 	Match.rescued.connect(_on_rescued)
+	Match.stock_played.connect(_on_stock)
+	Match.incident_started.connect(_on_incident_start)
+	Match.incident_ended.connect(_on_incident_end)
+	Match.blame_passed.connect(_on_blame_pass)
+	Match.fix_completed.connect(_on_fix_done)
+	Match.random_event.connect(_on_random_event)
+	Match.random_event_ended.connect(_on_random_event_end)
 	Net.status_changed.connect(_refresh_lobby)
 	Net.peer_list_changed.connect(_refresh_lobby)
-	if Net.is_dedicated:
-		lobby.visible = false
-		status_label.text = "专用服 %d · 等客户端加入后点开始" % Net.listen_port
+	Net.room_ready.connect(_on_room_ready)
+	Net.room_list_changed.connect(_refresh_room_list)
+	Net.go_error.connect(_on_go_error)
 	_refresh_lobby()
-	print("[Game] ready dedicated=%s port=%d" % [Net.is_dedicated, Net.listen_port])
-	if not Net.is_dedicated:
-		for arg in OS.get_cmdline_user_args():
-			if arg == "--test":
-				_show_lobby_page.call_deferred("char")
-				break
+	print("[Game] ready")
+	for arg in OS.get_cmdline_user_args():
+		if arg == "--test":
+			Net.begin_local_test()
+			_show_lobby_page.call_deferred("char")
+			break
 
 
 func _notification(what: int) -> void:
@@ -150,7 +178,7 @@ func _build_ui() -> void:
 	var card := ColorRect.new()
 	card.color = Color(0.12, 0.14, 0.16, 0.78)
 	card.position = Vector2(18, 16)
-	card.size = Vector2(168, 92)
+	card.size = Vector2(168, 112)
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(card)
 	you_role = Label.new()
@@ -174,20 +202,27 @@ func _build_ui() -> void:
 	state_label.add_theme_font_size_override("font_size", 11)
 	state_label.add_theme_color_override("font_color", Color(0.70, 0.76, 0.80))
 	card.add_child(state_label)
-	hours_bar = MeterScript.new()
-	hours_bar.position = Vector2(18, 116)
-	hours_bar.setup("工时", Color(0.24, 0.86, 0.94), 148, "res://assets/game/ui/hours.png")
-	_style_watch_meter(hours_bar)
+	for i in 3:
+		var pip := TextureRect.new()
+		pip.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pip.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		pip.position = Vector2(14 + i * 22, 90)
+		pip.size = Vector2(20, 20)
+		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(pip)
+		power_pips_ui.append(pip)
+	hours_bar = CellMeterScript.new()
+	hours_bar.position = Vector2(18, 118)
+	hours_bar.setup("任务", "task", Rules.TASK_COUNT)
 	hud.add_child(hours_bar)
-	energy_bar = MeterScript.new()
-	energy_bar.position = Vector2(18, 160)
-	energy_bar.setup("精力", Color(0.96, 0.78, 0.29), 148, "res://assets/game/ui/energy.png")
-	_style_watch_meter(energy_bar)
+	energy_bar = CellMeterScript.new()
+	energy_bar.position = Vector2(18, 164)
+	energy_bar.setup("精力", "energy", Rules.ENERGY_CELLS)
 	hud.add_child(energy_bar)
-	hours_num = hours_bar.num
-	energy_num = energy_bar.num
+	energy_play = EnergyPlayScript.new()
+	hud.add_child(energy_play)
 	lamps = HBoxContainer.new()
-	lamps.position = Vector2(18, 208)
+	lamps.position = Vector2(18, 226)
 	lamps.add_theme_constant_override("separation", 8)
 	hud.add_child(lamps)
 	_build_monitors()
@@ -235,7 +270,7 @@ func _build_ui() -> void:
 	kpi_fx.material = kpi_mat
 	hud.add_child(kpi_fx)
 	kpi_body = Label.new()
-	kpi_body.text = "内部邮件  KPI 暴击\n全员工时 +10\n立即打开"
+	kpi_body.text = "内部邮件  KPI 暴击\n全员再加一单\n立即打开"
 	kpi_body.set_anchors_preset(Control.PRESET_CENTER)
 	kpi_body.offset_left = -180
 	kpi_body.offset_top = -48
@@ -259,7 +294,7 @@ func _build_ui() -> void:
 	hint_label.add_theme_color_override("font_color", Color(0.35, 0.38, 0.42, 0.85))
 	hud.add_child(hint_label)
 	kpi_label = Label.new()
-	kpi_label.text = "全员 KPI  工时 +10"
+	kpi_label.text = "全员 KPI  再加一单"
 	kpi_label.visible = false
 	kpi_label.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	kpi_label.offset_top = 18
@@ -293,6 +328,74 @@ func _build_ui() -> void:
 	catch_banner.add_theme_color_override("font_color", Color(0.82, 0.22, 0.18))
 	catch_banner.visible = false
 	hud.add_child(catch_banner)
+	stock_desk = StockDeskScript.new()
+	hud.add_child(stock_desk)
+
+	# 事故 UI
+	incident_veil = ColorRect.new()
+	incident_veil.set_anchors_preset(Control.PRESET_FULL_RECT)
+	incident_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	incident_veil.color = Color(0.8, 0.04, 0.04, 0.0)
+	incident_veil.visible = false
+	hud.add_child(incident_veil)
+	incident_banner = Label.new()
+	incident_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	incident_banner.offset_left = -240
+	incident_banner.offset_top = 46
+	incident_banner.offset_right = 240
+	incident_banner.offset_bottom = 76
+	incident_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	incident_banner.add_theme_font_size_override("font_size", 18)
+	incident_banner.add_theme_color_override("font_color", Color(1.0, 0.92, 0.88))
+	incident_banner.visible = false
+	hud.add_child(incident_banner)
+	incident_timer_label = Label.new()
+	incident_timer_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	incident_timer_label.offset_left = -80
+	incident_timer_label.offset_top = 72
+	incident_timer_label.offset_right = 80
+	incident_timer_label.offset_bottom = 92
+	incident_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	incident_timer_label.add_theme_font_size_override("font_size", 14)
+	incident_timer_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.35))
+	incident_timer_label.visible = false
+	hud.add_child(incident_timer_label)
+
+	# 随机事件 UI
+	event_banner = Label.new()
+	event_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	event_banner.offset_left = -260
+	event_banner.offset_top = 100
+	event_banner.offset_right = 260
+	event_banner.offset_bottom = 130
+	event_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	event_banner.add_theme_font_size_override("font_size", 18)
+	event_banner.add_theme_color_override("font_color", Color(1.0, 0.95, 0.7))
+	event_banner.visible = false
+	hud.add_child(event_banner)
+
+	event_timer_label = Label.new()
+	event_timer_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	event_timer_label.offset_left = -80
+	event_timer_label.offset_top = 126
+	event_timer_label.offset_right = 80
+	event_timer_label.offset_bottom = 146
+	event_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	event_timer_label.add_theme_font_size_override("font_size", 13)
+	event_timer_label.add_theme_color_override("font_color", Color(0.9, 0.8, 0.4))
+	event_timer_label.visible = false
+	hud.add_child(event_timer_label)
+
+	blackout_veil = ColorRect.new()
+	blackout_veil.set_anchors_preset(Control.PRESET_FULL_RECT)
+	blackout_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	blackout_veil.color = Color(0.0, 0.0, 0.0, 0.0)
+	blackout_veil.visible = false
+	hud.add_child(blackout_veil)
+
+	hours_bar.z_index = 24
+	energy_bar.z_index = 24
+	energy_play.z_index = 40
 	hud.move_child(fear_fx, 0)
 	hud.move_child(catch_veil, 1)
 
@@ -326,7 +429,7 @@ func _build_ui() -> void:
 	back.text = "返回大厅"
 	back.position = Vector2(28, 360)
 	back.size = Vector2(140, 36)
-	back.pressed.connect(func(): Match.back_to_lobby())
+	back.pressed.connect(_result_back)
 	result_panel.add_child(back)
 
 
@@ -432,10 +535,23 @@ func _build_lobby() -> void:
 		"rec": rec,
 		"lcd": home_page.get_node_or_null("HauntLcd"),
 		"led": home_page.get_node_or_null("HauntLed"),
+		"stamp": home_page.get_node_or_null("HauntStamp"),
 		"layers": lobby_layers,
 		"actors": lobby_actors,
 	})
 	haunt.dress(lobby)
+	pointer = LobbyPointerScript.new()
+	lobby.add_child(pointer)
+	pointer.bind(haunt, {
+		"lobby": lobby,
+		"hero": hero,
+		"home_page": home_page,
+		"join_page": join_page,
+		"char_page": char_page,
+		"punch": home_page.get_node_or_null("HauntPunch"),
+		"cam": cam,
+		"exit_sign": haunt.exit_sign,
+	})
 	_show_lobby_page("home")
 
 
@@ -453,9 +569,9 @@ func _lobby_layer(path: String, alpha: float) -> TextureRect:
 func _make_lobby_actors() -> Array[Sprite2D]:
 	var frames := [
 		["res://assets/game/chars/horse/work_0.png", "res://assets/game/chars/horse/work_1.png", "res://assets/game/chars/horse/work_2.png", "res://assets/game/chars/horse/work_3.png"],
-		["res://assets/game/chars/rabbit/work_0.png", "res://assets/game/chars/rabbit/work_1.png", "res://assets/game/chars/rabbit/work_2.png", "res://assets/game/chars/rabbit/work_3.png"],
-		["res://assets/game/chars/cow/work_0.png", "res://assets/game/chars/cow/work_1.png", "res://assets/game/chars/cow/work_2.png", "res://assets/game/chars/cow/work_3.png"],
 		["res://assets/game/chars/pelican/work_0.png", "res://assets/game/chars/pelican/work_1.png", "res://assets/game/chars/pelican/work_2.png", "res://assets/game/chars/pelican/work_3.png"],
+		["res://assets/game/chars/kangaroo/work_0.png", "res://assets/game/chars/kangaroo/work_1.png", "res://assets/game/chars/kangaroo/work_2.png", "res://assets/game/chars/kangaroo/work_3.png"],
+		["res://assets/game/chars/dog/work_0.png", "res://assets/game/chars/dog/work_1.png", "res://assets/game/chars/dog/work_2.png", "res://assets/game/chars/dog/work_3.png"],
 		["res://assets/game/chars/tiger/idle_0.png", "res://assets/game/chars/tiger/idle_1.png", "res://assets/game/chars/tiger/idle_2.png", "res://assets/game/chars/tiger/idle_3.png"],
 	]
 	var at := [Vector2(700, 510), Vector2(890, 440), Vector2(1080, 525), Vector2(1200, 390), Vector2(1030, 250)]
@@ -472,6 +588,16 @@ func _make_lobby_actors() -> Array[Sprite2D]:
 		actor.z_index = 2
 		actor.set_meta("lobby_actor", i)
 		actor.set_meta("lobby_frames", actor_frames)
+		if i == 0:
+			var scarf_frames: Array[Texture2D] = []
+			for pose in ["work_0", "work_1", "work_2", "work_3"]:
+				scarf_frames.append(_lobby_tex("res://assets/game/chars/horse/scarf/%s.png" % pose))
+			var scarf := Sprite2D.new()
+			scarf.name = "Scarf"
+			scarf.texture = scarf_frames[0]
+			scarf.modulate = Rules.scarf_color(Rules.CharSkin.HORSE)
+			actor.add_child(scarf)
+			actor.set_meta("lobby_scarf_frames", scarf_frames)
 		out.append(actor)
 	return out
 
@@ -523,6 +649,7 @@ func _build_home_page() -> void:
 	tape_lab.base_color = Color(0.78, 0.72, 0.64)
 	tape.add_child(tape_lab)
 	var stamp := Panel.new()
+	stamp.name = "HauntStamp"
 	stamp.position = Vector2(392, 168)
 	stamp.size = Vector2(58, 58)
 	stamp.rotation = 0.28
@@ -645,16 +772,20 @@ func _build_home_page() -> void:
 	poster.add_child(poster_lab)
 
 	var start_btn := _lobby_btn("打卡上班", true)
+	start_btn.name = "StartBtn"
+	start_btn.set_meta("pointer_id", "start")
 	start_btn.position = Vector2(0, 148)
 	start_btn.pressed.connect(_click_start)
 	home_page.add_child(start_btn)
 
 	var join_btn := _lobby_btn("接入监控", false)
+	join_btn.set_meta("pointer_id", "join")
 	join_btn.position = Vector2(0, 212)
 	join_btn.pressed.connect(func(): _show_lobby_page("join"))
 	home_page.add_child(join_btn)
 
 	var char_btn := _lobby_btn("身份核验", false)
+	char_btn.set_meta("pointer_id", "verify")
 	char_btn.position = Vector2(0, 276)
 	char_btn.pressed.connect(func(): _show_lobby_page("char"))
 	home_page.add_child(char_btn)
@@ -671,6 +802,7 @@ func _build_home_page() -> void:
 	short_check.text = "试用期 · 未满勤不得走"
 	short_check.button_pressed = true
 	short_check.position = Vector2(0, 392)
+	short_check.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	short_check.add_theme_color_override("font_color", Color(0.78, 0.62, 0.54))
 	home_page.add_child(short_check)
 
@@ -682,7 +814,7 @@ func _build_home_page() -> void:
 	home_page.add_child(status_label)
 
 	var hint := HauntTextScript.new()
-	hint.text = "员工：小马 / 兔子 / 牛 / 鹈鹕    老板：老虎\n工时扣完才能打卡。未打卡，视为自愿加班。"
+	hint.text = "员工：小马 / 兔子 / 牛 / 鹈鹕 / 袋鼠 / 小狗    老板：老虎\n工时扣完才能打卡。未打卡，视为自愿加班。"
 	hint.position = Vector2(0, 612)
 	hint.size = Vector2(430, 48)
 	hint.font_size = 12
@@ -693,7 +825,7 @@ func _build_home_page() -> void:
 
 
 func _build_join_page() -> void:
-	join_page = _panel(Rect2(360, 150, 560, 400), Color(0.07, 0.04, 0.04, 0.96))
+	join_page = _panel(Rect2(300, 70, 680, 560), Color(0.07, 0.04, 0.04, 0.96))
 	join_page.visible = false
 	lobby.add_child(join_page)
 	var t := HauntTextScript.new()
@@ -707,9 +839,9 @@ func _build_join_page() -> void:
 	join_page.add_child(t)
 	var d := HauntTextScript.new()
 	d.name = "HauntD"
-	d.text = "输入单位地址。接入后不可退出监控范围。"
+	d.text = "连上 Go 服务端后，开自己的房间或输入房间码加入。"
 	d.position = Vector2(28, 58)
-	d.size = Vector2(500, 28)
+	d.size = Vector2(620, 28)
 	d.font_size = 15
 	d.amp = 2.0
 	d.base_color = Color(0.72, 0.58, 0.5)
@@ -717,30 +849,71 @@ func _build_join_page() -> void:
 	ip_edit = LineEdit.new()
 	ip_edit.placeholder_text = "监控主机 IP"
 	ip_edit.text = "127.0.0.1"
-	ip_edit.position = Vector2(28, 100)
-	ip_edit.size = Vector2(500, 40)
+	ip_edit.position = Vector2(28, 96)
+	ip_edit.size = Vector2(360, 40)
 	_style_field(ip_edit)
 	join_page.add_child(ip_edit)
-	var join_btn := _lobby_btn("进入单位", true)
-	join_btn.position = Vector2(28, 164)
+	var join_btn := _lobby_btn("连接服务器", true)
+	join_btn.position = Vector2(400, 92)
 	join_btn.size = Vector2(240, 48)
 	join_btn.pressed.connect(_join)
 	join_page.add_child(join_btn)
-	var host_btn := _lobby_btn("开设加班", false)
-	host_btn.position = Vector2(288, 164)
-	host_btn.size = Vector2(240, 48)
-	host_btn.pressed.connect(_host)
-	join_page.add_child(host_btn)
+	join_status = Label.new()
+	join_status.position = Vector2(28, 140)
+	join_status.size = Vector2(612, 28)
+	join_status.autowrap_mode = TextServer.AUTOWRAP_OFF
+	join_status.add_theme_font_size_override("font_size", 15)
+	join_status.add_theme_color_override("font_color", Color(0.82, 0.68, 0.58))
+	join_status.text = "尚未连接服务端"
+	join_page.add_child(join_status)
+	var create_btn := _lobby_btn("开设房间", true)
+	create_btn.position = Vector2(28, 176)
+	create_btn.size = Vector2(240, 48)
+	create_btn.pressed.connect(_create_go_room)
+	join_page.add_child(create_btn)
+	room_code_edit = LineEdit.new()
+	room_code_edit.placeholder_text = "房间码"
+	room_code_edit.position = Vector2(284, 180)
+	room_code_edit.size = Vector2(160, 40)
+	_style_field(room_code_edit)
+	join_page.add_child(room_code_edit)
+	var code_btn := _lobby_btn("加入", false)
+	code_btn.position = Vector2(456, 176)
+	code_btn.size = Vector2(184, 48)
+	code_btn.pressed.connect(_join_go_room)
+	join_page.add_child(code_btn)
+	var list_lab := HauntTextScript.new()
+	list_lab.text = "公开房间"
+	list_lab.position = Vector2(28, 238)
+	list_lab.size = Vector2(200, 24)
+	list_lab.font_size = 16
+	list_lab.amp = 1.0
+	list_lab.base_color = Color(0.82, 0.7, 0.6)
+	join_page.add_child(list_lab)
+	var sc := ScrollContainer.new()
+	sc.position = Vector2(28, 268)
+	sc.size = Vector2(612, 196)
+	join_page.add_child(sc)
+	room_list_box = VBoxContainer.new()
+	room_list_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	room_list_box.add_theme_constant_override("separation", 6)
+	sc.add_child(room_list_box)
 	var back := _lobby_btn("返回", false)
-	back.position = Vector2(28, 320)
+	back.position = Vector2(28, 480)
 	back.size = Vector2(140, 44)
 	back.pressed.connect(func(): _show_lobby_page("home"))
 	join_page.add_child(back)
+	var refresh := _lobby_btn("刷新列表", false)
+	refresh.position = Vector2(188, 480)
+	refresh.size = Vector2(180, 44)
+	refresh.pressed.connect(func(): Net.list_rooms())
+	join_page.add_child(refresh)
 
 
 func _build_char_page() -> void:
-	char_page = _panel(Rect2(140, 90, 1000, 540), Color(0.07, 0.04, 0.04, 0.96))
+	char_page = _panel(Rect2(40, 40, 1200, 640), Color(0.07, 0.04, 0.04, 0.96))
 	char_page.visible = false
+	char_page.z_index = 24
 	lobby.add_child(char_page)
 	var t := HauntTextScript.new()
 	t.name = "HauntH"
@@ -753,27 +926,33 @@ func _build_char_page() -> void:
 	char_page.add_child(t)
 	var d := HauntTextScript.new()
 	d.name = "HauntD"
-	d.text = "选择员工或 Boss，再确认打卡。测试房空位由 Bot 补齐。"
+	d.text = "点卡选自己；空位可加 Bot。测试房会把剩下空位补齐。"
 	d.position = Vector2(28, 56)
 	d.size = Vector2(900, 28)
 	d.font_size = 15
 	d.amp = 2.0
 	d.base_color = Color(0.72, 0.58, 0.5)
 	char_page.add_child(d)
-	slot_box = HBoxContainer.new()
-	slot_box.position = Vector2(28, 100)
-	slot_box.size = Vector2(944, 320)
-	slot_box.add_theme_constant_override("separation", 14)
+	slot_box = Control.new()
+	slot_box.position = Vector2(16, 88)
+	slot_box.size = Vector2(1168, 420)
+	slot_box.mouse_filter = Control.MOUSE_FILTER_PASS
 	char_page.add_child(slot_box)
 	var back := _lobby_btn("返回走廊", false)
-	back.position = Vector2(28, 460)
+	back.position = Vector2(16, 516)
 	back.size = Vector2(180, 48)
-	back.pressed.connect(func(): _show_lobby_page("home"))
+	back.pressed.connect(_back_from_char)
 	char_page.add_child(back)
+	fill_bots_btn = _lobby_btn("空位全补 Bot", false)
+	fill_bots_btn.position = Vector2(208, 516)
+	fill_bots_btn.size = Vector2(220, 48)
+	fill_bots_btn.pressed.connect(_fill_bots)
+	char_page.add_child(fill_bots_btn)
 	var enter := _lobby_btn("确认身份 · 打卡上班", true)
-	enter.position = Vector2(640, 460)
+	enter.position = Vector2(860, 516)
 	enter.pressed.connect(_confirm_start)
 	char_page.add_child(enter)
+	enter_char_btn = enter
 
 
 func _show_lobby_page(page: String) -> void:
@@ -783,23 +962,34 @@ func _show_lobby_page(page: String) -> void:
 		join_page.visible = page == "join"
 	if char_page:
 		char_page.visible = page == "char"
+		if page == "char":
+			char_page.move_to_front()
+	if join_page and page == "join":
+		join_page.move_to_front()
 	if page == "char":
 		_refresh_lobby()
 
 
 func _click_start() -> void:
+	Net.begin_local_test()
+	if Match.phase == "lobby":
+		Match.go_clear_to_lobby()
 	_show_lobby_page("char")
 
 
+func _back_from_char() -> void:
+	if Net.local_test and Match.phase == "lobby":
+		Net.end_local_test()
+	_show_lobby_page("home")
+
+
 func _confirm_start() -> void:
-	if Net.connected and not Net.is_server:
-		Match.claim_local(wanted_slot, name_edit.text)
-		_show_lobby_page("home")
+	if Net.go_match() and Net.room_code != "":
+		Net.claim(wanted_slot, name_edit.text)
+		if Net.is_captain():
+			Net.start_match(short_check.button_pressed)
 		return
-	if Net.is_server:
-		Match.start_local(short_check.button_pressed, false)
-	else:
-		_enter_test_room()
+	_enter_test_room()
 
 
 func _lobby_btn(text: String, primary: bool) -> Button:
@@ -809,6 +999,7 @@ func _lobby_btn(text: String, primary: bool) -> Button:
 	b.clip_contents = false
 	b.add_to_group("haunt_btn")
 	b.set_meta("haunt_base", text)
+	b.set_meta("pointer_id", "ui")
 	var sb := StyleBoxFlat.new()
 	sb.corner_radius_top_left = 2
 	sb.corner_radius_top_right = 14
@@ -873,14 +1064,56 @@ func _style_field(e: LineEdit) -> void:
 
 
 func _lobby_tex(path: String) -> Texture2D:
+	if path == "":
+		return null
+	var abs_path := ProjectSettings.globalize_path(path)
+	if FileAccess.file_exists(path) or FileAccess.file_exists(abs_path):
+		var img := Image.load_from_file(abs_path)
+		if img != null and not img.is_empty():
+			return ImageTexture.create_from_image(img)
 	if ResourceLoader.exists(path):
 		var loaded: Resource = load(path)
 		if loaded is Texture2D:
 			return loaded
-	var img := Image.load_from_file(ProjectSettings.globalize_path(path))
-	if img != null and not img.is_empty():
-		return ImageTexture.create_from_image(img)
 	return null
+
+
+func _portrait_rect(tex: Texture2D, pos: Vector2, size: Vector2) -> TextureRect:
+	var pic := TextureRect.new()
+	pic.texture = tex
+	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	pic.position = pos
+	pic.size = size
+	pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return pic
+
+
+func _add_slot_portrait(card: Control, slot: int, rect: Rect2) -> void:
+	var pack := _char_pack(slot)
+	var skin: int = int(Rules.SKIN_FOR_SLOT.get(slot, Rules.CharSkin.HORSE))
+	var plate := ColorRect.new()
+	plate.color = Color(0.91, 0.87, 0.78)
+	plate.position = rect.position
+	plate.size = rect.size
+	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(plate)
+	var body := _portrait_rect(_lobby_tex("res://assets/game/chars/%s/idle_0.png" % pack), rect.position, rect.size)
+	var scarf_tex := _lobby_tex("res://assets/game/chars/%s/scarf/idle_0.png" % pack)
+	if pack == "horse":
+		var body_mat := ShaderMaterial.new()
+		body_mat.shader = BODY_SHADER
+		body_mat.set_shader_parameter("body_color", Rules.body_color(skin))
+		body.material = body_mat
+	elif scarf_tex == null:
+		var haunt := ShaderMaterial.new()
+		haunt.shader = preload("res://src/ui/lobby_haunt.gdshader")
+		body.material = haunt
+	card.add_child(body)
+	if scarf_tex != null:
+		var scarf := _portrait_rect(scarf_tex, rect.position, rect.size)
+		scarf.modulate = Rules.scarf_color(skin)
+		card.add_child(scarf)
 
 
 func _char_pack(slot: int) -> String:
@@ -888,11 +1121,11 @@ func _char_pack(slot: int) -> String:
 		Rules.Slot.BOSS:
 			return "tiger"
 		Rules.Slot.EMP_B:
-			return "rabbit"
-		Rules.Slot.EMP_C:
-			return "cow"
-		Rules.Slot.EMP_D:
 			return "pelican"
+		Rules.Slot.EMP_C:
+			return "kangaroo"
+		Rules.Slot.EMP_D:
+			return "dog"
 		_:
 			return "horse"
 
@@ -906,8 +1139,8 @@ func _panel(rect: Rect2, color: Color) -> ColorRect:
 
 
 func _build_monitors() -> void:
-	var nicks := ["马", "兔", "牛", "鹈"]
-	for i in 4:
+	var nicks := ["马", "鹈", "袋", "狗"]
+	for i in nicks.size():
 		var box := ColorRect.new()
 		box.color = Color(0.08, 0.09, 0.10, 0.88)
 		box.custom_minimum_size = Vector2(36, 28)
@@ -921,7 +1154,7 @@ func _build_monitors() -> void:
 		box.add_child(snow)
 		mate_snow.append(snow)
 		var lab := Label.new()
-		lab.text = nicks[i]
+		lab.text = nicks[i] if i < nicks.size() else "?"
 		lab.position = Vector2(4, 6)
 		lab.size = Vector2(28, 16)
 		lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -981,117 +1214,253 @@ func _host() -> void:
 	_refresh_lobby()
 
 
-func _join() -> void:
-	if Net.join(ip_edit.text) != OK:
-		status_label.text = Net.last_error
-		_show_lobby_page("home")
+func _set_join_status(text: String, ok: bool = false) -> void:
+	if join_status == null:
 		return
-	await Net.status_changed
-	Match.claim_local(wanted_slot, name_edit.text)
-	_show_lobby_page("home")
+	join_status.text = text
+	join_status.add_theme_color_override("font_color", Color(0.62, 0.92, 0.72) if ok else Color(0.92, 0.62, 0.52))
+
+
+func _join() -> void:
+	if Net.connect_go(ip_edit.text) != OK:
+		_set_join_status(Net.last_error)
+		return
+	_set_join_status(Net.last_error)
+	_refresh_room_list()
+
+
+func _create_go_room() -> void:
+	if not Net.using_go or not Net.connected:
+		_set_join_status("先连接服务器")
+		return
+	Net.create_room()
+
+
+func _join_go_room() -> void:
+	if not Net.using_go or not Net.connected:
+		_set_join_status("先连接服务器")
+		return
+	Net.join_room(room_code_edit.text)
+
+
+func _on_room_ready() -> void:
+	if Net.local_test:
+		return
+	_show_lobby_page("char")
 	_refresh_lobby()
+
+
+func _on_go_error() -> void:
+	_set_join_status(Net.last_error)
+
+
+func _refresh_room_list() -> void:
+	if room_list_box == null:
+		return
+	for c in room_list_box.get_children():
+		c.queue_free()
+	for item in Net.rooms:
+		var code := str(item.get("code", ""))
+		var phase := str(item.get("phase", "lobby"))
+		var n := int(item.get("players", 0))
+		var label := "%s  ·  %d人  ·  %s" % [code, n, "进行中" if phase != "lobby" else "大厅"]
+		var b := Button.new()
+		b.text = label
+		b.custom_minimum_size = Vector2(580, 36)
+		b.disabled = phase != "lobby"
+		var captured := code
+		b.pressed.connect(func():
+			room_code_edit.text = captured
+			Net.join_room(captured)
+		)
+		room_list_box.add_child(b)
 
 
 func _enter_test_room() -> void:
 	if Net.is_dedicated:
 		return
+	Net.begin_local_test()
 	if Match.phase != "lobby":
 		Match.back_to_lobby()
 		await get_tree().process_frame
-	if not Net.is_server:
-		if Net.connected:
-			Net.leave()
+	# 连着 Go 时不断线，用本地 Offline 模拟测试房。
+	if not Net.is_server and not Net.using_go:
 		if Net.host_listen() != OK:
 			status_label.text = Net.last_error
+			Net.end_local_test()
 			return
 	Match.claim_local(wanted_slot, name_edit.text)
+	Match.fill_empty_bots_local()
 	Match.start_local(true, true)
 
 
 func _pick_slot(slot: int) -> void:
 	wanted_slot = slot
-	if Net.is_server or Net.connected:
+	if Net.go_match() and Net.room_code != "":
+		Net.claim(slot, name_edit.text)
+	else:
 		Match.claim_local(slot, name_edit.text)
+	call_deferred("_rebuild_slot_cards")
+
+
+func _can_assign_bot() -> bool:
+	if Net.go_match():
+		return Net.connected and Net.room_code != ""
+	return true
+
+
+func _set_slot_bot(slot: int, on: bool) -> void:
+	if Net.go_match():
+		if not _can_assign_bot():
+			return
+		Net.set_bot(slot, on)
+		return
+	Match.set_bot_local(slot, on)
+	_refresh_lobby()
+
+
+func _fill_bots() -> void:
+	if Net.go_match():
+		if not _can_assign_bot():
+			_set_join_status("先进入房间")
+			return
+		Net.fill_bots()
+		return
+	Match.fill_empty_bots_local()
 	_refresh_lobby()
 
 
 func _refresh_lobby() -> void:
+	if Match == null:
+		return
 	var returning := lobby != null and not lobby.visible
 	if Match.phase == "lobby":
 		lobby.visible = not Net.is_dedicated
-		hud.visible = false
-		result_panel.visible = false
-		exit_btn.visible = false
+		if hud:
+			hud.visible = false
+		if result_panel:
+			result_panel.visible = false
+		if exit_btn:
+			exit_btn.visible = false
 		if returning:
 			_show_lobby_page("home")
-	if Net.is_server:
+	if Net.local_test:
+		status_label.text = "测试房（本地）。连着服务器也不影响，空位由 Bot 补齐。"
+	elif Net.using_go:
+		if Net.room_code != "":
+			var role := "主管" if Net.is_captain() else "到岗"
+			var room_txt := "房间 %s · 你是%s\n选身份后，主管点打卡开局" % [Net.room_code, role]
+			status_label.text = room_txt
+			_set_join_status("已进房 %s（%s）" % [Net.room_code, role], true)
+		elif Net.connected:
+			status_label.text = "已接入。开设房间或输入房间码。"
+			_set_join_status("已连接  #%d。可以开设房间或输入房间码。" % Net.go_peer_id, true)
+		else:
+			var pending := Net.last_error if Net.last_error != "" else "正在连接服务端…"
+			status_label.text = pending
+			_set_join_status(pending)
+	elif Net.is_server:
 		status_label.text = "单位已开  127.0.0.1:%d\n核验身份后，点「打卡上班」" % Net.listen_port
 	elif Net.connected:
 		status_label.text = "已接入监控。核验身份，等主管开局。"
 	else:
 		status_label.text = "打卡上班：先选员工或 Boss，再进入测试房。空位由 Bot 补齐。"
+		if Net.last_error != "":
+			_set_join_status(Net.last_error)
+		else:
+			_set_join_status("尚未连接服务端")
+	if enter_char_btn:
+		var cap = enter_char_btn.get_node_or_null("HauntCap")
+		var go_room := Net.go_match() and Net.room_code != ""
+		if go_room and Net.is_captain():
+			enter_char_btn.set_meta("haunt_base", "确认身份 · 打卡开局")
+			if cap:
+				cap.text = "确认身份 · 打卡开局"
+		elif go_room:
+			enter_char_btn.set_meta("haunt_base", "确认占位 · 等主管开局")
+			if cap:
+				cap.text = "确认占位 · 等主管开局"
+		else:
+			enter_char_btn.set_meta("haunt_base", "确认身份 · 打卡上班")
+			if cap:
+				cap.text = "确认身份 · 打卡上班"
+	if fill_bots_btn:
+		fill_bots_btn.visible = _can_assign_bot()
+	_rebuild_slot_cards()
+
+
+func _rebuild_slot_cards() -> void:
 	if slot_box == null:
 		return
 	for c in slot_box.get_children():
-		c.queue_free()
-	for s in [Rules.Slot.EMP_A, Rules.Slot.EMP_B, Rules.Slot.EMP_C, Rules.Slot.EMP_D, Rules.Slot.BOSS]:
+		slot_box.remove_child(c)
+		c.free()
+	var picks: Array = Rules.EMPLOYEE_SLOTS.duplicate()
+	picks.append(Rules.Slot.BOSS)
+	var n := picks.size()
+	var w := 152.0
+	var h := 300.0
+	var gap := 10.0
+	var total := float(n) * w + float(n - 1) * gap
+	var x0 := maxf(0.0, (slot_box.size.x - total) * 0.5)
+	for i in n:
+		var s: int = picks[i]
 		var pid := int(Match.slots.get(s, -1))
 		var who := "缺编"
 		if pid == 0:
 			who = "编外"
 		elif pid > 0:
 			who = str(Match.names.get(pid, "工号%d" % pid))
-		var picked: int = int(s)
+		var x := x0 + float(i) * (w + gap)
 		var card := Button.new()
-		card.custom_minimum_size = Vector2(176, 300)
+		card.position = Vector2(x, 0)
+		card.size = Vector2(w, h)
 		card.toggle_mode = true
-		card.button_pressed = picked == wanted_slot
+		card.button_pressed = s == wanted_slot
 		card.clip_contents = false
-		card.rotation = -0.03 if s == Rules.Slot.BOSS else 0.02 * float((int(s) % 3) - 1)
-		card.pressed.connect(func(): _pick_slot(picked))
+		var pick := s
+		card.pressed.connect(func(): _pick_slot(pick))
 		var sb := StyleBoxFlat.new()
 		sb.corner_radius_top_left = 3
 		sb.corner_radius_top_right = 16
 		sb.corner_radius_bottom_right = 4
 		sb.corner_radius_bottom_left = 12
-		sb.bg_color = Color(0.12, 0.08, 0.08, 0.96) if picked != wanted_slot else Color(0.28, 0.08, 0.08, 0.96)
+		sb.bg_color = Color(0.12, 0.08, 0.08, 0.96) if s != wanted_slot else Color(0.28, 0.08, 0.08, 0.96)
 		sb.border_width_bottom = 4
 		sb.border_width_left = 1
-		sb.border_color = Color(0.72, 0.16, 0.12) if picked == wanted_slot else Color(0.28, 0.16, 0.14)
+		sb.border_color = Color(0.72, 0.16, 0.12) if s == wanted_slot else Color(0.28, 0.16, 0.14)
 		card.add_theme_stylebox_override("normal", sb)
 		card.add_theme_stylebox_override("hover", sb)
 		card.add_theme_stylebox_override("pressed", sb)
-		var pic := TextureRect.new()
-		pic.texture = load("res://assets/game/chars/%s/idle_0.png" % _char_pack(picked))
-		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		pic.position = Vector2(18, 16)
-		pic.size = Vector2(140, 180)
-		pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var pic_mat := ShaderMaterial.new()
-		pic_mat.shader = preload("res://src/ui/lobby_haunt.gdshader")
-		pic.material = pic_mat
-		card.add_child(pic)
+		_add_slot_portrait(card, s, Rect2(16, 8, 120, 168))
 		var nm := HauntTextScript.new()
-		nm.text = str(Rules.SLOT_NAMES[s])
-		nm.position = Vector2(8, 200)
-		nm.size = Vector2(160, 28)
-		nm.font_size = 16
+		nm.text = str(Rules.SLOT_NAMES.get(s, "工位"))
+		nm.position = Vector2(4, 180)
+		nm.size = Vector2(w - 8.0, 26)
+		nm.font_size = 14
 		nm.amp = 2.4
 		nm.align = HORIZONTAL_ALIGNMENT_CENTER
 		nm.base_color = Color(0.94, 0.86, 0.78)
 		card.add_child(nm)
 		var st := HauntTextScript.new()
 		st.text = who if s != Rules.Slot.BOSS else (who + " · 请勿对视")
-		st.position = Vector2(8, 232)
-		st.size = Vector2(160, 40)
-		st.font_size = 12
+		st.position = Vector2(4, 208)
+		st.size = Vector2(w - 8.0, 44)
+		st.font_size = 11
 		st.amp = 2.0
 		st.wrap = true
 		st.align = HORIZONTAL_ALIGNMENT_CENTER
 		st.base_color = Color(0.78, 0.32, 0.26) if s == Rules.Slot.BOSS else Color(0.7, 0.58, 0.52)
 		card.add_child(st)
 		slot_box.add_child(card)
+		if _can_assign_bot() and pid <= 0:
+			var bot_on := pid == 0
+			var bot_btn := Button.new()
+			bot_btn.text = "移出 Bot" if bot_on else "加 Bot"
+			bot_btn.position = Vector2(x, h + 8.0)
+			bot_btn.size = Vector2(w, 32)
+			bot_btn.pressed.connect(func(): _set_slot_bot(pick, not bot_on))
+			slot_box.add_child(bot_btn)
 
 
 func _on_started() -> void:
@@ -1177,7 +1546,7 @@ func _on_talked(slot: int) -> void:
 		_cam_punch = 0.22
 	elif not _same_view_as(vic):
 		var where := office.room_title(vic.global_position) if vic and office else ""
-		_flash_banner("%s 被约谈 · %s" % [who, where], Color(0.72, 0.28, 0.18), 1.3)
+		_flash_banner("%s 被扑倒复盘 · %s" % [who, where], Color(0.72, 0.28, 0.18), 1.3)
 
 
 func _on_rescued(slot: int, by_slot: int) -> void:
@@ -1204,11 +1573,25 @@ func _on_rescued(slot: int, by_slot: int) -> void:
 		_flash_banner("%s 把 %s 捞走了" % [helper, who], Color(0.22, 0.52, 0.36), 1.0)
 
 
+func _on_stock(slot: int, pnl: float, energy_loss: float, boosted: bool) -> void:
+	var who := _slot_nick(slot)
+	if boosted:
+		_flash_banner("%s 持股进账 · 精力+1  全员加速（%+.0f）" % [who, pnl], Color(0.28, 0.82, 0.42), 1.7)
+		_cam_punch = maxf(_cam_punch, 0.22)
+		return
+	if Match.my_slot() != slot:
+		return
+	if pnl < -Rules.STOCK_WIN:
+		_flash_banner("亏了  精力还在  %+0.1f" % pnl, Color(0.78, 0.62, 0.42), 1.1)
+	else:
+		_flash_banner("平盘  %+0.1f" % pnl, Color(0.70, 0.72, 0.74), 0.9)
+
+
 func _on_caught(slot: int, _repeat: bool, add_hours: float) -> void:
 	var my := Match.my_slot()
 	var vic: Actor = Match.actors.get(slot) as Actor
 	if vic:
-		vic.say("工时 +%d" % int(add_hours), 1.5)
+		vic.say("这单废了", 1.5)
 	if my == slot:
 		_catch_t = 0.8
 		_shake = 0.4
@@ -1221,6 +1604,132 @@ func _on_caught(slot: int, _repeat: bool, add_hours: float) -> void:
 		_flash_banner("%s 复盘完了" % _slot_nick(slot), Color(0.72, 0.22, 0.18), 1.0)
 
 
+func _on_incident_start(blame_slot: int) -> void:
+	var my := Match.my_slot()
+	var who := _slot_nick(blame_slot)
+	_shake = 0.5
+	_cam_punch = 0.6
+	if incident_veil:
+		incident_veil.visible = true
+	if incident_banner:
+		incident_banner.visible = true
+		incident_banner.text = "⚠ 线上事故 · P0 · 第一责任人：%s" % who
+	if incident_timer_label:
+		incident_timer_label.visible = true
+	if my == blame_slot:
+		_flash_banner("你是第一责任人 · 去终端修 Bug 或甩锅！", Color(0.95, 0.22, 0.14), 2.5)
+	elif my == Rules.Slot.BOSS:
+		_flash_banner("事故触发 · 责任人：%s" % who, Color(0.82, 0.55, 0.22), 2.0)
+	else:
+		_flash_banner("线上事故！责任人：%s · 可以去帮忙修" % who, Color(0.92, 0.42, 0.22), 2.0)
+
+
+func _on_incident_end(fixed: bool, blame_slot: int) -> void:
+	if incident_veil:
+		incident_veil.visible = false
+	if incident_banner:
+		incident_banner.visible = false
+	if incident_timer_label:
+		incident_timer_label.visible = false
+	var my := Match.my_slot()
+	if fixed:
+		_flash_banner("事故修复 · 恢复正常", Color(0.28, 0.82, 0.42), 1.8)
+		_cam_punch = 0.3
+	else:
+		var who := _slot_nick(blame_slot)
+		if my == blame_slot:
+			_flash_banner("事故未修复 · 写复盘吧", Color(0.92, 0.18, 0.14), 2.0)
+			_shake = 0.35
+			_catch_t = 0.6
+		elif my == Rules.Slot.BOSS:
+			_flash_banner("事故超时 · %s 背锅" % who, Color(0.82, 0.55, 0.22), 1.5)
+		else:
+			_flash_banner("事故超时 · %s 被罚" % who, Color(0.72, 0.42, 0.22), 1.5)
+
+
+func _on_blame_pass(from_slot: int, to_slot: int) -> void:
+	var my := Match.my_slot()
+	var from := _slot_nick(from_slot)
+	var to := _slot_nick(to_slot)
+	_cam_punch = 0.3
+	_shake = 0.2
+	if incident_banner:
+		incident_banner.text = "⚠ 线上事故 · P0 · 责任人：%s" % to
+	if my == from_slot:
+		_flash_banner("甩锅成功 · 锅给了 %s" % to, Color(0.42, 0.82, 0.42), 1.3)
+	elif my == to_slot:
+		_flash_banner("被甩锅！你现在是责任人！", Color(0.95, 0.22, 0.14), 1.8)
+		_shake = 0.35
+		_catch_t = 0.4
+	elif my == Rules.Slot.BOSS:
+		_flash_banner("甩锅：%s → %s" % [from, to], Color(0.82, 0.62, 0.22), 1.2)
+	else:
+		_flash_banner("%s 把锅甩给了 %s" % [from, to], Color(0.72, 0.52, 0.32), 1.2)
+
+
+func _on_fix_done(slot: int, is_assist: bool) -> void:
+	var my := Match.my_slot()
+	var who := _slot_nick(slot)
+	if my == slot:
+		if is_assist:
+			_flash_banner("帮修完成 · 精力 +1", Color(0.28, 0.82, 0.42), 1.3)
+		else:
+			_flash_banner("Bug 修复！事故解除！", Color(0.22, 0.92, 0.48), 1.8)
+		_cam_punch = 0.3
+	else:
+		if is_assist:
+			_flash_banner("%s 帮忙修完了 · 事故缩短" % who, Color(0.42, 0.72, 0.42), 1.0)
+		else:
+			_flash_banner("%s 修复了 Bug · 事故解除" % who, Color(0.22, 0.82, 0.42), 1.5)
+
+
+func _on_random_event(event_name: String, data: Dictionary) -> void:
+	match event_name:
+		"anon_report":
+			var s: int = data.get("slot", -1)
+			var who := _slot_nick(s)
+			_flash_banner("📢 匿名举报 · %s 行迹暴露！" % who, Color(0.95, 0.65, 0.15), 2.5)
+			_cam_punch = 0.2
+		"blackout":
+			_flash_banner("⚡ 停电了！摸黑前行！", Color(0.3, 0.3, 0.5), 2.5)
+			if blackout_veil:
+				blackout_veil.visible = true
+			if event_banner:
+				event_banner.text = "⚡ 停电中"
+				event_banner.visible = true
+			if event_timer_label:
+				event_timer_label.visible = true
+			_cam_punch = 0.35
+		"delivery":
+			_flash_banner("🍜 外卖到了！快去前台抢！", Color(0.95, 0.72, 0.2), 2.5)
+			if event_banner:
+				event_banner.text = "🍜 外卖到了 · E 抢"
+				event_banner.visible = true
+			if event_timer_label:
+				event_timer_label.visible = true
+		"intranet_down":
+			_flash_banner("🌐 内网崩了！无法工作！", Color(0.4, 0.55, 0.85), 2.5)
+			if event_banner:
+				event_banner.text = "🌐 内网崩了 · 无法坐下"
+				event_banner.visible = true
+			if event_timer_label:
+				event_timer_label.visible = true
+			_cam_punch = 0.25
+
+func _on_random_event_end(event_name: String) -> void:
+	match event_name:
+		"blackout":
+			_flash_banner("💡 来电了！", Color(0.85, 0.88, 0.4), 1.5)
+		"delivery":
+			pass
+		"intranet_down":
+			_flash_banner("🌐 内网恢复！工作效率 ×%.1f（%ds）" % [Rules.INTRANET_BOOST_MUL, int(Rules.INTRANET_BOOST_TIME)], Color(0.4, 0.85, 0.55), 2.0)
+	if event_banner:
+		event_banner.visible = false
+	if event_timer_label:
+		event_timer_label.visible = false
+
+
 func _same_view_as(other: Actor) -> bool:
 	var me := _local_actor()
 	if me == null or other == null or office == null:
@@ -1229,7 +1738,7 @@ func _same_view_as(other: Actor) -> bool:
 
 
 func _slot_nick(slot: int) -> String:
-	var nicks := ["小马", "兔子", "牛", "鹈鹕"]
+	var nicks := ["小马", "兔子", "牛", "鹈鹕", "袋鼠", "小狗"]
 	if Rules.slot_is_employee(slot):
 		return nicks[Rules.employee_index(slot)]
 	return "老板"
@@ -1253,36 +1762,92 @@ func _refresh_hud() -> void:
 		you_role.text = "工牌 · %s" % Rules.SLOT_NAMES.get(actor.slot, "员工")
 		hours_bar.visible = true
 		energy_bar.visible = true
-		hours_bar.set_amount(actor.hours)
-		energy_bar.set_amount(actor.energy)
-		state_label.text = str(Rules.STATE_NAMES.get(actor.emp_state, ""))
+		hours_bar.set_cells(actor.tasks_done, actor.task_progress if actor.tasking else 0.0, Rules.task_name(actor.tasks_done) if actor.tasks_done < Rules.TASK_COUNT else "可打卡")
+		var en_extra := "%d 格" % actor.energy_cells
+		if actor.energy_cells < Rules.ENERGY_CELLS and actor.energy_charge > 0.04:
+			en_extra = "回血 %.0f%%" % (actor.energy_charge * 100.0)
+		energy_bar.set_cells(actor.energy_cells, actor.energy_charge, en_extra)
+		var st := str(Rules.STATE_NAMES.get(actor.emp_state, ""))
 		if actor.emp_state == Rules.EmpState.TALK:
-			state_label.text = "约谈中 · 督导中" if Match.is_watched(actor) else "约谈中 · 可捞"
-		if actor.emp_state == Rules.EmpState.TALK:
-			hint_label.text = "约谈中 · 等同事捞人    老板在这间屋就捞不走"
-		elif actor.emp_state == Rules.EmpState.WORK or actor.emp_state == Rules.EmpState.SLACK:
-			hint_label.text = "WASD 起身    E 起身    F 摸鱼    同事被约谈时走过去 E 捞人"
+			st = _review_state_text(actor)
+		elif actor.emp_state == Rules.EmpState.MEETING:
+			st = "开会中 · 可捞"
+		if actor.slow_left > 0.05:
+			st += "  被周报压住 %.0fs" % actor.slow_left
+		if actor.skin == Rules.CharSkin.PELICAN:
+			if actor.fly_cd > 0.05:
+				st += "  飞走 %.0fs" % actor.fly_cd
+			else:
+				st += "  飞走就绪"
+		if actor.skin == Rules.CharSkin.DOG:
+			if actor.pack_hp > 0:
+				st += "  兄弟 %d" % actor.pack_hp
+			elif actor.pack_cd > 0.05:
+				st += "  兄弟 %.0fs" % actor.pack_cd
+			else:
+				st += "  兄弟就绪"
+		if actor.dash_cd > 0.05:
+			st += "  冲刺 %.0fs" % actor.dash_cd
 		else:
-			hint_label.text = "E 坐下 / 续命 / 捞人 / 关门    F 摸鱼    WASD 走动"
+			st += "  冲刺就绪"
+		state_label.text = st
+		if actor.emp_state == Rules.EmpState.TALK:
+			hint_label.text = _review_hint_text(actor)
+		elif actor.emp_state == Rules.EmpState.MEETING:
+			hint_label.text = "被拉去开会 30 秒    同事开门进来贴着 E 捞 2.5 秒"
+		elif actor.emp_state == Rules.EmpState.TRADE:
+			hint_label.text = "赚了 +1 精力、开工加速、全员加速    亏了不扣    页面发红就是老板近了    F 买/卖    E 撤"
+		elif actor.emp_state == Rules.EmpState.WORK or actor.emp_state == Rules.EmpState.SLACK:
+			if actor.tasking:
+				hint_label.text = "正在写「%s」  WASD 会作废当前格    F 摸鱼无效" % Rules.task_name(actor.tasks_done)
+			elif actor.energy_cells <= 0:
+				hint_label.text = "没精力无法开工    F 摸鱼慢慢回    或去茶水间/抽屉/零食柜卡点续命"
+			else:
+				hint_label.text = "E 确认开工「%s」    F 摸鱼    WASD 起身" % Rules.task_name(actor.tasks_done)
+		elif actor.play_kind != "":
+			hint_label.text = "F 卡点 / 拆包装    E 放弃    老板靠近会被约谈"
+		elif actor.skin == Rules.CharSkin.PELICAN:
+			hint_label.text = "E 接活水    空格飞走穿墙（可带人）    Shift 冲刺"
+		elif actor.skin == Rules.CharSkin.KANGAROO:
+			hint_label.text = "先找精力再开工    F 骑车 / 下车    下车后才能交互    E 坐下后还要再确认开工    Shift 冲刺"
+		elif actor.skin == Rules.CharSkin.DOG:
+			hint_label.text = "走廊空按 E 喊兄弟    三只小狗跟 8 秒、各挡一次短扑或周报    开会和 KPI 照打    Shift 冲刺"
+		else:
+			hint_label.text = "先找精力：茶水间手冲、饮水机、零食、翻抽屉    E 坐下后还要再确认开工    Shift 冲刺"
 	elif actor != null and actor.kind == Rules.Kind.BOSS:
-		you_role.text = "工牌 · 老板"
-		state_label.text = "开会 %.0fs  KPI %.0fs  冲刺 %.0fs" % [actor.meeting_cd, actor.kpi_cd, actor.dash_cd]
-		hint_label.text = "E 约谈 / 开门    盯着复盘加速    Q 开会    R KPI    Shift 冲刺"
+		you_role.text = "工牌 · 老虎"
+		var stun := ""
+		if actor.lunge_stun > 0.05:
+			stun = "  硬直 %.1fs" % actor.lunge_stun
+		var inc_txt := "事故 %.0fs" % actor.incident_cd if actor.incident_cd > 0.05 else ("事故进行中 %.0fs" % Match.incident_left if Match.incident_active else "事故就绪")
+		state_label.text = "势力 %d/3%s    周报 %.0fs  扇形 %.0fs  KPI %.0fs  %s  冲刺 %.0fs" % [actor.power_pips, stun, actor.report_cd, actor.fan_cd, actor.kpi_cd, inc_txt, actor.dash_cd]
+		if actor.power_pips >= Rules.TIGER_POWER_MAX:
+			hint_label.text = "Q 开会拉人 30 秒    空格短扑    F 扔周报    G 扇形周报    R KPI    T 线上事故    Shift 冲刺"
+		else:
+			hint_label.text = "空格短扑攒势力    F 扔周报    G 扇形    R KPI    T 事故    Shift 冲刺    满 3 格才 Q"
+	for i in power_pips_ui.size():
+		var pip: TextureRect = power_pips_ui[i]
+		var show_pips := actor != null and actor.kind == Rules.Kind.BOSS
+		pip.visible = show_pips
+		if show_pips:
+			var on := i < actor.power_pips
+			pip.texture = Rules.tex(Rules.UI_POWER_ON if on else Rules.UI_POWER_OFF)
+			pip.modulate = Color.WHITE if on else Color(1, 1, 1, 0.55)
 	hint_label.modulate.a = clampf(_help_t / 2.0, 0.0, 1.0)
 	_refresh_lamps()
 
 
 func _refresh_lamps() -> void:
 	var me := _local_actor()
-	var nicks := ["马", "兔", "牛", "鹈"]
+	var nicks := ["马", "鹈", "袋", "狗"]
 	for i in mate_box.size():
-		var slot := Rules.Slot.EMP_A + i
+		var slot: int = Rules.EMPLOYEE_SLOTS[i]
 		var box := mate_box[i]
 		var lab := mate_lab[i]
 		var snow := mate_snow[i]
 		var c := Color(0.10, 0.11, 0.12, 0.9)
 		var snow_a := 0.0
-		lab.text = nicks[i]
+		lab.text = nicks[i] if i < nicks.size() else "?"
 		if Match.actors.has(slot):
 			var e: Actor = Match.actors[slot]
 			var seen := me != null and office != null and office.same_view(me.global_position, e.global_position)
@@ -1296,9 +1861,15 @@ func _refresh_lamps() -> void:
 			elif e.emp_state == Rules.EmpState.TALK:
 				c = Color(0.32, 0.08, 0.08, 0.95)
 				snow_a = 0.18
-				lab.text = "救命"
+				lab.text = "复盘"
+			elif e.emp_state == Rules.EmpState.MEETING:
+				c = Color(0.42, 0.08, 0.08, 0.95)
+				lab.text = "开会"
 			elif e.emp_state == Rules.EmpState.SLACK:
 				c = Color(0.28, 0.20, 0.08, 0.9)
+			elif e.emp_state == Rules.EmpState.TRADE:
+				c = Color(0.28, 0.22, 0.08, 0.95)
+				lab.text = "盘中"
 			elif e.emp_state == Rules.EmpState.WORK:
 				c = Color(0.10, 0.22, 0.14, 0.9)
 			else:
@@ -1308,13 +1879,52 @@ func _refresh_lamps() -> void:
 
 
 func _local_actor() -> Actor:
+	if Match == null:
+		return null
 	var my := Match.my_slot()
 	if my < 0:
 		return null
 	return Match.actors.get(my) as Actor
 
 
+func _review_state_text(actor: Actor) -> String:
+	var step := mini(actor.review_step, Rules.REVIEW_STEPS)
+	var prompt := "现在回应" if actor.review_window_left > 0.0 else "等待追问"
+	return "复盘反驳 %d/%d · %s" % [step, Rules.REVIEW_STEPS, prompt]
+
+
+func _review_hint_text(actor: Actor) -> String:
+	if actor.review_window_left > 0.0:
+		return "领导正在追问 · 立刻按 E 对齐口径    成功 %d/%d    同事仍可贴着 E 捞 2.5 秒" % [actor.review_step, Rules.REVIEW_STEPS]
+	return "复盘中 · 等追问出现再按 E；抢答或漏答会加速复盘    同事贴着 E 捞 2.5 秒"
+
+
 func _leave_room() -> void:
+	if Net.local_test:
+		Match.back_to_lobby()
+		Net.end_local_test()
+		_show_lobby_page("home")
+		return
+	if Net.using_go:
+		Net.leave_room()
+		Match.go_clear_to_lobby()
+		_show_lobby_page("join")
+		return
+	Match.back_to_lobby()
+
+
+func _result_back() -> void:
+	if Net.local_test:
+		Match.back_to_lobby()
+		Net.end_local_test()
+		_show_lobby_page("home")
+		return
+	if Net.using_go:
+		if Net.is_captain():
+			Net.reset_match()
+		else:
+			_leave_room()
+		return
 	Match.back_to_lobby()
 
 
@@ -1322,8 +1932,16 @@ func _process(delta: float) -> void:
 	_edge_keys()
 	_update_camera(delta)
 	var actor := _local_actor()
+	if stock_desk:
+		var threat := Match.trade_threat(actor) if actor != null and actor.emp_state == Rules.EmpState.TRADE else 0.0
+		stock_desk.bind(actor, threat)
+	if energy_play:
+		energy_play.bind(actor)
 	if actor == null or not Match.playing:
 		return
+	if actor.emp_state == Rules.EmpState.TALK:
+		state_label.text = _review_state_text(actor)
+		hint_label.text = _review_hint_text(actor)
 	var dir := Vector2.ZERO
 	if Input.is_physical_key_pressed(KEY_A) or Input.is_physical_key_pressed(KEY_LEFT):
 		dir.x -= 1
@@ -1333,15 +1951,26 @@ func _process(delta: float) -> void:
 		dir.y -= 1
 	if Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN):
 		dir.y += 1
-	if multiplayer.is_server():
-		actor.apply_input(dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash)
+	if Net.go_match():
+		_go_input_t += delta
+		var pulsed := _pulse_interact or _pulse_slack or _pulse_meeting or _pulse_kpi or _pulse_dash or _pulse_report or _pulse_fan or _pulse_fly or _pulse_incident or _pulse_blame
+		if pulsed or _go_input_t >= 0.05:
+			_go_input_t = 0.0
+			Net.send_input(dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash, _pulse_fly, _pulse_incident, _pulse_blame)
+	elif Net.is_enet_server():
+		actor.apply_input(dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash, _pulse_report, _pulse_fan, _pulse_fly, _pulse_incident, _pulse_blame)
 	else:
-		actor.recv_input.rpc_id(1, dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash)
+		actor.recv_input.rpc_id(1, dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash, _pulse_report, _pulse_fan, _pulse_fly, _pulse_incident, _pulse_blame)
 	_pulse_interact = false
 	_pulse_slack = false
 	_pulse_meeting = false
 	_pulse_kpi = false
 	_pulse_dash = false
+	_pulse_report = false
+	_pulse_fan = false
+	_pulse_incident = false
+	_pulse_blame = false
+	_pulse_fly = false
 
 
 func _update_camera(delta: float) -> void:
@@ -1386,7 +2015,10 @@ func _update_camera(delta: float) -> void:
 			elif threat > 0.32:
 				warn = "督导在附近"
 				veil_a = 0.05 * threat
-		if actor.emp_state == Rules.EmpState.TALK:
+		if actor.emp_state == Rules.EmpState.TRADE:
+			warn = ""
+			veil_a = 0.0
+		elif actor.emp_state == Rules.EmpState.TALK:
 			veil_a = maxf(veil_a, 0.16)
 			if warn == "":
 				warn = "约谈中 · 对齐颗粒度"
@@ -1430,13 +2062,46 @@ func _update_camera(delta: float) -> void:
 		var c := catch_veil.color
 		c.a = lerpf(c.a, veil_a, 1.0 - exp(-8.0 * delta))
 		catch_veil.color = c
+	# 事故红色边缘脉冲
+	if incident_veil:
+		if Match.incident_active:
+			incident_veil.visible = true
+			var inc_pulse := 0.08 + 0.06 * absf(sin(_breath_t * 4.2))
+			incident_veil.color = Color(0.8, 0.04, 0.04, inc_pulse)
+		else:
+			incident_veil.color.a = lerpf(incident_veil.color.a, 0.0, 1.0 - exp(-6.0 * delta))
+			if incident_veil.color.a < 0.005:
+				incident_veil.visible = false
+	if incident_timer_label:
+		if Match.incident_active:
+			incident_timer_label.visible = true
+			incident_timer_label.text = "剩余 %.0fs" % ceilf(Match.incident_left)
+			var blink := int(_breath_t * 3.0) % 2 == 0
+			incident_timer_label.add_theme_color_override("font_color", Color(1.0, 0.35, 0.25) if blink else Color(1.0, 0.65, 0.55))
+		else:
+			incident_timer_label.visible = false
+	# 停电暗幕
+	if blackout_veil:
+		if Match.blackout_active:
+			blackout_veil.visible = true
+			var flicker := 0.72 + 0.06 * sin(_breath_t * 1.8)
+			blackout_veil.color = Color(0.0, 0.0, 0.02, flicker)
+		else:
+			blackout_veil.color.a = lerpf(blackout_veil.color.a, 0.0, 1.0 - exp(-4.0 * delta))
+			if blackout_veil.color.a < 0.01:
+				blackout_veil.visible = false
+	# 随机事件倒计时
+	if event_timer_label and Match.event_active != "":
+		event_timer_label.text = "%.0fs" % ceilf(Match.event_left)
+	elif event_timer_label:
+		event_timer_label.visible = false
 	for i in mate_snow.size():
 		var snow := mate_snow[i]
 		if snow.color.a > 0.04:
 			snow.color.a = 0.10 + 0.16 * absf(sin(_breath_t * 12.0 + float(i) * 1.7))
-	if mate_box.size() == 4:
+	if not mate_box.is_empty():
 		for i in mate_box.size():
-			var slot := Rules.Slot.EMP_A + i
+			var slot: int = Rules.EMPLOYEE_SLOTS[i]
 			var e: Actor = Match.actors.get(slot) as Actor
 			if e != null and e.emp_state == Rules.EmpState.TALK:
 				var pulse := 0.75 + 0.25 * absf(sin(_breath_t * 6.0))
@@ -1469,11 +2134,32 @@ func _edge_keys() -> void:
 	var q := Input.is_physical_key_pressed(KEY_Q)
 	var r := Input.is_physical_key_pressed(KEY_R)
 	var sh := Input.is_physical_key_pressed(KEY_SHIFT)
+	var g := Input.is_physical_key_pressed(KEY_G)
+	var t_key := Input.is_physical_key_pressed(KEY_T)
 	var esc := Input.is_physical_key_pressed(KEY_ESCAPE)
-	if e and not _e_down:
-		_pulse_interact = true
+	var space := Input.is_physical_key_pressed(KEY_SPACE)
+	var actor := _local_actor()
+	var boss := actor != null and actor.kind == Rules.Kind.BOSS
+	if boss and Match.playing:
+		if space and not _space_down:
+			_pulse_interact = true
+	else:
+		if e and not _e_down:
+			_pulse_interact = true
+		if space and not _space_down:
+			_pulse_fly = true
 	if f and not _f_down:
-		_pulse_slack = true
+		if boss:
+			_pulse_report = true
+		elif actor != null and actor.is_blame_target and Match.incident_active:
+			_pulse_blame = true
+		else:
+			_pulse_slack = true
+	if g and not _g_down and boss:
+		_pulse_fan = true
+	if t_key and not _t_down:
+		if boss:
+			_pulse_incident = true
 	if q and not _q_down:
 		_pulse_meeting = true
 	if r and not _r_down:
@@ -1487,7 +2173,10 @@ func _edge_keys() -> void:
 	_q_down = q
 	_r_down = r
 	_shift_down = sh
+	_g_down = g
+	_t_down = t_key
 	_esc_down = esc
+	_space_down = space
 
 
 func _fmt(sec: float) -> String:

@@ -1,0 +1,13 @@
+{
+  "note": "Copied from src/map/OfficeMap.gd walls, points, doors, and furniture blockers. Keep in sync.",
+  "actor_radius": 11,
+  "doors": [
+    {"id": "toilet", "x": 180, "y": 554},
+    {"id": "storage", "x": 740, "y": 554},
+    {"id": "tea", "x": 1340, "y": 554},
+    {"id": "lounge", "x": 1840, "y": 554},
+    {"id": "lobby", "x": 180, "y": 774},
+    {"id": "desk", "x": 900, "y": 774},
+    {"id": "meeting", "x": 1860, "y": 774}
+  ]
+}
