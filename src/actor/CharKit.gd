@@ -86,16 +86,7 @@ static func _load_pose(pack: String, pose: String) -> Texture2D:
 
 
 static func _try_tex(path: String) -> Texture2D:
-	if ResourceLoader.exists(path):
-		var loaded: Resource = load(path)
-		if loaded is Texture2D:
-			return loaded as Texture2D
-	var abs_path := ProjectSettings.globalize_path(path)
-	if FileAccess.file_exists(abs_path):
-		var img := Image.load_from_file(abs_path)
-		if img != null and not img.is_empty():
-			return ImageTexture.create_from_image(img)
-	return null
+	return Rules.tex(path)
 
 
 static func loop_frames(anim: String) -> PackedStringArray:

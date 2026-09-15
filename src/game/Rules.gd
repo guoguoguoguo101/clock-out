@@ -197,16 +197,23 @@ func office_clock_text(progress: float) -> String:
 	return "%d:%02d" % [t / 60, t % 60]
 
 
+static var _tex_cache: Dictionary = {}
+
+
 static func tex(path: String) -> Texture2D:
 	if path == "":
 		return null
-	if ResourceLoader.exists(path):
-		var loaded: Resource = ResourceLoader.load(path)
-		if loaded is Texture2D:
-			return loaded
+	if _tex_cache.has(path):
+		return _tex_cache[path] as Texture2D
+	var result: Texture2D = null
 	var abs_path := ProjectSettings.globalize_path(path)
 	if FileAccess.file_exists(path) or FileAccess.file_exists(abs_path):
 		var img := Image.load_from_file(abs_path)
 		if img != null and not img.is_empty():
-			return ImageTexture.create_from_image(img)
-	return null
+			result = ImageTexture.create_from_image(img)
+	if result == null and ResourceLoader.exists(path):
+		var loaded: Resource = ResourceLoader.load(path)
+		if loaded is Texture2D:
+			result = loaded
+	_tex_cache[path] = result
+	return result
