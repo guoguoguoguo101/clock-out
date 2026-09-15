@@ -1273,7 +1273,7 @@ func path_to(from: Vector2, to: Vector2) -> Vector2:
 	if ra != 5:
 		var dpos := door_pos_for_room(ra, from)
 		if from.distance_to(dpos) > 22.0:
-			return dpos
+			return _avoid_furniture(from, dpos)
 		return Vector2(dpos.x, Rules.CORRIDOR_Y)
 	if rb != 5:
 		var dpos := door_pos_for_room(rb, to)

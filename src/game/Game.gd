@@ -106,6 +106,7 @@ func _ready() -> void:
 	print("[Game] ready")
 	for arg in OS.get_cmdline_user_args():
 		if arg == "--test":
+			Net.begin_local_test()
 			_show_lobby_page.call_deferred("char")
 			break
 
@@ -825,7 +826,7 @@ func _build_char_page() -> void:
 	var back := _lobby_btn("返回走廊", false)
 	back.position = Vector2(16, 516)
 	back.size = Vector2(180, 48)
-	back.pressed.connect(func(): _show_lobby_page("home"))
+	back.pressed.connect(_back_from_char)
 	char_page.add_child(back)
 	fill_bots_btn = _lobby_btn("空位全补 Bot", false)
 	fill_bots_btn.position = Vector2(208, 516)
@@ -855,23 +856,25 @@ func _show_lobby_page(page: String) -> void:
 
 
 func _click_start() -> void:
+	Net.begin_local_test()
+	if Match.phase == "lobby":
+		Match.go_clear_to_lobby()
 	_show_lobby_page("char")
 
 
+func _back_from_char() -> void:
+	if Net.local_test and Match.phase == "lobby":
+		Net.end_local_test()
+	_show_lobby_page("home")
+
+
 func _confirm_start() -> void:
-	if Net.using_go:
+	if Net.go_match() and Net.room_code != "":
 		Net.claim(wanted_slot, name_edit.text)
 		if Net.is_captain():
 			Net.start_match(short_check.button_pressed)
 		return
-	if Net.connected and not Net.is_server:
-		Match.claim_local(wanted_slot, name_edit.text)
-		_show_lobby_page("home")
-		return
-	if Net.is_server:
-		Match.start_local(short_check.button_pressed, false)
-	else:
-		_enter_test_room()
+	_enter_test_room()
 
 
 func _lobby_btn(text: String, primary: bool) -> Button:
@@ -1129,6 +1132,8 @@ func _join_go_room() -> void:
 
 
 func _on_room_ready() -> void:
+	if Net.local_test:
+		return
 	_show_lobby_page("char")
 	_refresh_lobby()
 
@@ -1162,14 +1167,15 @@ func _refresh_room_list() -> void:
 func _enter_test_room() -> void:
 	if Net.is_dedicated:
 		return
+	Net.begin_local_test()
 	if Match.phase != "lobby":
 		Match.back_to_lobby()
 		await get_tree().process_frame
-	if not Net.is_server:
-		if Net.connected:
-			Net.leave()
+	# 连着 Go 时不断线，用本地 Offline 模拟测试房。
+	if not Net.is_server and not Net.using_go:
 		if Net.host_listen() != OK:
 			status_label.text = Net.last_error
+			Net.end_local_test()
 			return
 	Match.claim_local(wanted_slot, name_edit.text)
 	Match.fill_empty_bots_local()
@@ -1178,21 +1184,21 @@ func _enter_test_room() -> void:
 
 func _pick_slot(slot: int) -> void:
 	wanted_slot = slot
-	if Net.using_go:
+	if Net.go_match() and Net.room_code != "":
 		Net.claim(slot, name_edit.text)
-	elif Net.is_server or Net.connected:
+	else:
 		Match.claim_local(slot, name_edit.text)
 	call_deferred("_rebuild_slot_cards")
 
 
 func _can_assign_bot() -> bool:
-	if Net.using_go:
+	if Net.go_match():
 		return Net.connected and Net.room_code != ""
 	return true
 
 
 func _set_slot_bot(slot: int, on: bool) -> void:
-	if Net.using_go:
+	if Net.go_match():
 		if not _can_assign_bot():
 			return
 		Net.set_bot(slot, on)
@@ -1202,7 +1208,7 @@ func _set_slot_bot(slot: int, on: bool) -> void:
 
 
 func _fill_bots() -> void:
-	if Net.using_go:
+	if Net.go_match():
 		if not _can_assign_bot():
 			_set_join_status("先进入房间")
 			return
@@ -1226,7 +1232,9 @@ func _refresh_lobby() -> void:
 			exit_btn.visible = false
 		if returning:
 			_show_lobby_page("home")
-	if Net.using_go:
+	if Net.local_test:
+		status_label.text = "测试房（本地）。连着服务器也不影响，空位由 Bot 补齐。"
+	elif Net.using_go:
 		if Net.room_code != "":
 			var role := "主管" if Net.is_captain() else "到岗"
 			var room_txt := "房间 %s · 你是%s\n选身份后，主管点打卡开局" % [Net.room_code, role]
@@ -1251,14 +1259,19 @@ func _refresh_lobby() -> void:
 			_set_join_status("尚未连接服务端")
 	if enter_char_btn:
 		var cap = enter_char_btn.get_node_or_null("HauntCap")
-		if Net.using_go and Net.is_captain():
+		var go_room := Net.go_match() and Net.room_code != ""
+		if go_room and Net.is_captain():
 			enter_char_btn.set_meta("haunt_base", "确认身份 · 打卡开局")
 			if cap:
 				cap.text = "确认身份 · 打卡开局"
-		elif Net.using_go:
+		elif go_room:
 			enter_char_btn.set_meta("haunt_base", "确认占位 · 等主管开局")
 			if cap:
 				cap.text = "确认占位 · 等主管开局"
+		else:
+			enter_char_btn.set_meta("haunt_base", "确认身份 · 打卡上班")
+			if cap:
+				cap.text = "确认身份 · 打卡上班"
 	if fill_bots_btn:
 		fill_bots_btn.visible = _can_assign_bot()
 	_rebuild_slot_cards()
@@ -1598,6 +1611,11 @@ func _local_actor() -> Actor:
 
 
 func _leave_room() -> void:
+	if Net.local_test:
+		Match.back_to_lobby()
+		Net.end_local_test()
+		_show_lobby_page("home")
+		return
 	if Net.using_go:
 		Net.leave_room()
 		Match.go_clear_to_lobby()
@@ -1607,6 +1625,11 @@ func _leave_room() -> void:
 
 
 func _result_back() -> void:
+	if Net.local_test:
+		Match.back_to_lobby()
+		Net.end_local_test()
+		_show_lobby_page("home")
+		return
 	if Net.using_go:
 		if Net.is_captain():
 			Net.reset_match()
@@ -1636,7 +1659,7 @@ func _process(delta: float) -> void:
 		dir.y -= 1
 	if Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN):
 		dir.y += 1
-	if Net.using_go:
+	if Net.go_match():
 		_go_input_t += delta
 		var pulsed := _pulse_interact or _pulse_slack or _pulse_meeting or _pulse_kpi or _pulse_dash or _pulse_report or _pulse_fan
 		if pulsed or _go_input_t >= 0.05:

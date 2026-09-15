@@ -16,6 +16,7 @@ var last_error := ""
 var listen_port := PORT
 
 var using_go := false
+var local_test := false
 var go_peer_id := 0
 var room_code := ""
 var captain_id := 0
@@ -172,18 +173,31 @@ func is_captain() -> bool:
 	return using_go and go_peer_id != 0 and go_peer_id == captain_id
 
 
+func go_match() -> bool:
+	return using_go and not local_test
+
+
+func begin_local_test() -> void:
+	local_test = true
+
+
+func end_local_test() -> void:
+	local_test = false
+
+
 func has_peer() -> bool:
 	return multiplayer.multiplayer_peer != null
 
 
 func is_enet_server() -> bool:
-	return not using_go and has_peer() and multiplayer.is_server()
+	return not go_match() and has_peer() and multiplayer.is_server()
 
 
 func leave() -> void:
 	if _ws != null:
 		_ws.close()
 		_ws = null
+	local_test = false
 	_reset_go()
 	if multiplayer.multiplayer_peer != null:
 		multiplayer.multiplayer_peer.close()
@@ -208,7 +222,7 @@ func _reset_go() -> void:
 
 func peer_ids() -> Array[int]:
 	var ids: Array[int] = []
-	if using_go:
+	if go_match():
 		if go_peer_id != 0:
 			ids.append(go_peer_id)
 		return ids
@@ -266,7 +280,8 @@ func _handle(msg: Dictionary) -> void:
 			room_code = str(msg.get("code", ""))
 			captain_id = int(msg.get("captain", 0))
 			last_error = ""
-			room_ready.emit()
+			if not local_test:
+				room_ready.emit()
 			status_changed.emit()
 		"room_list":
 			rooms = msg.get("rooms", [])
@@ -275,14 +290,19 @@ func _handle(msg: Dictionary) -> void:
 			var lobby: Dictionary = msg.get("lobby", {})
 			captain_id = int(msg.get("captain", lobby.get("captain", captain_id)))
 			room_code = str(msg.get("code", lobby.get("code", room_code)))
-			if Match:
+			if Match and not local_test:
 				Match.apply_go_lobby(lobby, captain_id)
-			status_changed.emit()
+			if not local_test:
+				status_changed.emit()
 		"snapshot":
+			if local_test:
+				return
 			var snap: Dictionary = msg.get("snapshot", {})
 			if Match:
 				Match.apply_go_snapshot(snap)
 		"event":
+			if local_test:
+				return
 			var ev: Dictionary = msg.get("event", {})
 			if Match:
 				Match.apply_go_event(ev)

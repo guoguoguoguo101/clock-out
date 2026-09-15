@@ -260,7 +260,7 @@ func (o *Office) PathTo(from, to Vec) Vec {
 	if ra != 5 {
 		dpos := o.DoorPosForRoom(ra, from)
 		if from.Dist(dpos) > 22 {
-			return dpos
+			return o.avoidFurniture(from, dpos)
 		}
 		return Vec{dpos.X, CorridorY}
 	}

@@ -73,6 +73,8 @@ func tick(delta: float) -> void:
 			if actor.global_position.distance_to(map.points[id]) < Rules.INTERACT_RANGE:
 				actor.want_interact = true
 			return
+		_go(map.points["corridor"], delta)
+		return
 	var seat_id := map.nearest_free("seat", actor.global_position)
 	if seat_id == "":
 		_go(map.points["corridor"], delta)

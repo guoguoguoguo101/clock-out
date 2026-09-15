@@ -127,7 +127,7 @@ func setup(p_slot: int, p_peer: int, p_name: String) -> void:
 
 
 func is_local() -> bool:
-	if Net.using_go:
+	if Net.go_match():
 		return peer_id != 0 and peer_id == Net.go_peer_id
 	if not Net.has_peer():
 		return false
@@ -678,7 +678,7 @@ func _update_threat_modulate() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if Net.using_go:
+	if Net.go_match():
 		global_position = global_position.lerp(_remote_pos, 1.0 - exp(-12.0 * delta))
 		if carried_by >= 0:
 			var carrier := Match.actors.get(carried_by) as Actor
@@ -980,7 +980,7 @@ func _refresh_legacy() -> void:
 
 
 func _tick_cells(delta: float) -> void:
-	if emp_state == Rules.EmpState.LEFT or emp_state == Rules.EmpState.CLOCKING:
+	if emp_state == Rules.EmpState.LEFT or emp_state == Rules.EmpState.CLOCKING or emp_state == Rules.EmpState.CARRIED or carried_by >= 0:
 		_refresh_legacy()
 		return
 	if energy_cells >= Rules.ENERGY_CELLS:

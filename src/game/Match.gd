@@ -48,7 +48,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	if Net.using_go:
+	if Net.go_match():
 		return
 	if not Net.is_enet_server():
 		return
@@ -83,7 +83,7 @@ func day_progress() -> float:
 
 
 func my_slot() -> int:
-	var id := Net.go_peer_id if Net.using_go else (multiplayer.get_unique_id() if Net.has_peer() else 0)
+	var id := Net.go_peer_id if Net.go_match() else (multiplayer.get_unique_id() if Net.has_peer() else 0)
 	for s in slots.keys():
 		if int(slots[s]) == id:
 			return int(s)
@@ -220,11 +220,16 @@ func _spawn_all() -> void:
 		if int(s) == Rules.Slot.BOSS:
 			actor.global_position = office.points["boss_spawn"]
 		else:
+			var seat_i := Rules.employee_index(int(s)) + 1
+			var seat_id := "seat_%d" % seat_i
 			actor.global_position = office.seat_for_slot(int(s))
-			actor.emp_state = Rules.EmpState.WALK
-			actor.energy_cells = 0
+			actor.emp_state = Rules.EmpState.WORK
+			actor.energy_cells = Rules.ENERGY_CELLS
 			actor.energy_charge = 0.0
 			actor.tasks_done = 0
+			actor.occupy_id = seat_id
+			actor.last_seat = seat_i
+			office.take_spot(seat_id, int(s))
 			actor._refresh_legacy()
 		actors[int(s)] = actor
 		spawn_actor.rpc(int(s), pid, pname, actor.global_position.x, actor.global_position.y, actor.emp_state)
@@ -249,10 +254,15 @@ func spawn_actor(slot: int, pid: int, pname: String, x: float, y: float, st: int
 	actor.global_position = Vector2(x, y)
 	actor.emp_state = st
 	if Rules.slot_is_employee(slot):
-		actor.energy_cells = 0
+		actor.energy_cells = Rules.ENERGY_CELLS
 		actor.energy_charge = 0.0
 		actor.tasks_done = 0
 		actor.tasking = false
+		if st == Rules.EmpState.WORK:
+			var seat_id := "seat_%d" % (Rules.employee_index(slot) + 1)
+			actor.occupy_id = seat_id
+			actor.last_seat = Rules.employee_index(slot) + 1
+			office.take_spot(seat_id, slot)
 		actor._refresh_legacy()
 	actors[slot] = actor
 
@@ -866,7 +876,7 @@ func sync_lobby(p_slots: Dictionary, p_names: Dictionary, p_short: bool, p_phase
 
 
 func _on_peers() -> void:
-	if Net.using_go or not Net.is_enet_server():
+	if Net.go_match() or not Net.is_enet_server():
 		return
 	var alive: Dictionary = {}
 	alive[1] = true
