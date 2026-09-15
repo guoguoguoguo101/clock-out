@@ -1,16 +1,6 @@
 extends Control
 class_name EnergyPlay
 
-const CHOCO := preload("res://assets/game/props/energy/snack_choco.png")
-const NOODLE := preload("res://assets/game/props/energy/snack_noodle.png")
-const COOKIE := preload("res://assets/game/props/energy/snack_cookie.png")
-const CAN := preload("res://assets/game/props/energy/can_drink.png")
-const CUP := preload("res://assets/game/props/energy/water_cup.png")
-const BREW := preload("res://assets/game/props/energy/brew_cup.png")
-const DRAWER := preload("res://assets/game/props/energy/drawer.png")
-const FRIDGE := preload("res://assets/game/props/energy/fridge.png")
-const VEND := preload("res://assets/game/props/energy/vending.png")
-
 var dim: ColorRect
 var panel: ColorRect
 var title: Label
@@ -121,23 +111,23 @@ func bind(actor: Actor) -> void:
 		"brew":
 			title.text = "续命 · 手冲咖啡"
 			hint.text = "指针进棕色带时按 F 出杯    E 撤"
-			art.texture = BREW
+			art.texture = Rules.tex("res://assets/game/props/energy/brew_cup.png")
 			_show_timing(Color(0.62, 0.42, 0.22, 0.7))
 		"flush":
 			title.text = "暂时离线 · 深呼吸"
 			hint.text = "指针进冷静带时按 F    E 撤"
-			art.texture = CUP
+			art.texture = Rules.tex("res://assets/game/props/energy/water_cup.png")
 			_show_timing(Color(0.32, 0.62, 0.52, 0.7))
 		"vend":
 			title.text = "非法加餐 · 投币柜"
 			hint.text = "F 停格    停在能喝的格子才算出货"
-			art.texture = VEND
+			art.texture = Rules.tex("res://assets/game/props/energy/vending.png")
 			_show_timing(Color(0.86, 0.62, 0.22, 0.7))
 		"rummage":
 			var fridge := actor != null and str(actor.occupy_id).begins_with("fridge")
 			title.text = "翻冰箱 · 不是你的也先垫一口" if fridge else "翻抽屉 · 不是你的也先垫一口"
 			hint.text = "食物闪出来时按 F    订书钉不要吃"
-			art.texture = FRIDGE if fridge else DRAWER
+			art.texture = Rules.tex("res://assets/game/props/energy/fridge.png") if fridge else Rules.tex("res://assets/game/props/energy/drawer.png")
 			_show_timing(Color(0.86, 0.48, 0.22, 0.7))
 		"snack":
 			title.text = "桌面搜刮 · 过期也算热量"
@@ -149,7 +139,7 @@ func bind(actor: Actor) -> void:
 		"water":
 			title.text = "饮水机 · 接一杯清醒"
 			hint.text = "水位晃到刚好满时按 F    满溢就洒了"
-			art.texture = CUP
+			art.texture = Rules.tex("res://assets/game/props/energy/water_cup.png")
 			_hide_timing()
 			fill.visible = true
 			fill.size = Vector2((panel.size.x - 140.0) * clampf(_t, 0.0, 1.0), 10)
@@ -160,10 +150,10 @@ func bind(actor: Actor) -> void:
 func _snack_tex() -> Texture2D:
 	var n := _hits % 3
 	if n == 1:
-		return NOODLE
+		return Rules.tex("res://assets/game/props/energy/snack_noodle.png")
 	if n == 2:
-		return CAN
-	return CHOCO
+		return Rules.tex("res://assets/game/props/energy/can_drink.png")
+	return Rules.tex("res://assets/game/props/energy/snack_choco.png")
 
 
 func _show_timing(zone_col: Color) -> void:

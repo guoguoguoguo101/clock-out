@@ -6,9 +6,6 @@ const Kit := preload("res://src/actor/CharKit.gd")
 const Ride := preload("res://src/actor/RideKit.gd")
 const SCARF_SHADER := preload("res://src/actor/scarf.gdshader")
 const BODY_SHADER := preload("res://src/actor/body.gdshader")
-const PAPER_TEX := preload("res://assets/game/props/paper.png")
-const COFFEE_TEX := preload("res://assets/game/props/coffee.png")
-const WEEKLY_TEX := preload("res://assets/game/props/reports/weekly.png")
 
 @onready var name_label: Label = $Name
 
@@ -600,20 +597,20 @@ func _update_hold() -> void:
 	if hold_sprite == null:
 		return
 	if emp_state == Rules.EmpState.TALK:
-		hold_sprite.texture = PAPER_TEX
+		hold_sprite.texture = Rules.tex("res://assets/game/props/paper.png")
 		hold_sprite.visible = true
 		hold_sprite.position = Vector2(18, -10)
 		hold_sprite.scale = Vector2(0.035, 0.035)
 		hold_sprite.modulate = Color(1, 0.85, 0.82)
 	elif emp_state == Rules.EmpState.COFFEE:
-		hold_sprite.texture = COFFEE_TEX
+		hold_sprite.texture = Rules.tex("res://assets/game/props/coffee.png")
 		hold_sprite.visible = true
 		hold_sprite.position = Vector2(16, -8)
 		hold_sprite.scale = Vector2(0.03, 0.03)
 		hold_sprite.modulate = Color.WHITE
 	elif throw_flash > 0.0:
 		var hand := throw_hand_offset()
-		hold_sprite.texture = WEEKLY_TEX
+		hold_sprite.texture = Rules.tex("res://assets/game/props/reports/weekly.png")
 		hold_sprite.region_enabled = false
 		hold_sprite.visible = true
 		hold_sprite.position = hand
@@ -621,7 +618,7 @@ func _update_hold() -> void:
 		hold_sprite.rotation = 0.18 * (1.0 if hand.x >= 0.0 else -1.0)
 		hold_sprite.modulate = Color(1, 1, 1, clampf(throw_flash / 0.16, 0.0, 1.0))
 	elif slow_left > 0.0:
-		hold_sprite.texture = WEEKLY_TEX
+		hold_sprite.texture = Rules.tex("res://assets/game/props/reports/weekly.png")
 		hold_sprite.region_enabled = false
 		hold_sprite.visible = true
 		hold_sprite.position = Vector2(16, -36)

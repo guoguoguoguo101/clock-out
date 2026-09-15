@@ -194,3 +194,18 @@ func task_name(done: int) -> String:
 func office_clock_text(progress: float) -> String:
 	var t := 17 * 60 + 50 + int(round(clampf(progress, 0.0, 1.0) * 10.0))
 	return "%d:%02d" % [t / 60, t % 60]
+
+
+static func tex(path: String) -> Texture2D:
+	if path == "":
+		return null
+	if ResourceLoader.exists(path):
+		var loaded: Resource = ResourceLoader.load(path)
+		if loaded is Texture2D:
+			return loaded
+	var abs_path := ProjectSettings.globalize_path(path)
+	if FileAccess.file_exists(path) or FileAccess.file_exists(abs_path):
+		var img := Image.load_from_file(abs_path)
+		if img != null and not img.is_empty():
+			return ImageTexture.create_from_image(img)
+	return null

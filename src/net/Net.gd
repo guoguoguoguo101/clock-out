@@ -275,14 +275,17 @@ func _handle(msg: Dictionary) -> void:
 			var lobby: Dictionary = msg.get("lobby", {})
 			captain_id = int(msg.get("captain", lobby.get("captain", captain_id)))
 			room_code = str(msg.get("code", lobby.get("code", room_code)))
-			Match.apply_go_lobby(lobby, captain_id)
+			if Match:
+				Match.apply_go_lobby(lobby, captain_id)
 			status_changed.emit()
 		"snapshot":
 			var snap: Dictionary = msg.get("snapshot", {})
-			Match.apply_go_snapshot(snap)
+			if Match:
+				Match.apply_go_snapshot(snap)
 		"event":
 			var ev: Dictionary = msg.get("event", {})
-			Match.apply_go_event(ev)
+			if Match:
+				Match.apply_go_event(ev)
 		"error":
 			last_error = str(msg.get("reason", "错误"))
 			go_error.emit()

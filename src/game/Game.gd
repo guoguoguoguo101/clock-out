@@ -1213,6 +1213,8 @@ func _fill_bots() -> void:
 
 
 func _refresh_lobby() -> void:
+	if Match == null:
+		return
 	var returning := lobby != null and not lobby.visible
 	if Match.phase == "lobby":
 		lobby.visible = not Net.is_dedicated
@@ -1587,6 +1589,8 @@ func _refresh_lamps() -> void:
 
 
 func _local_actor() -> Actor:
+	if Match == null:
+		return null
 	var my := Match.my_slot()
 	if my < 0:
 		return null

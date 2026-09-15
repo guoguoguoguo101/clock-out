@@ -1,11 +1,6 @@
 extends Control
 class_name CellMeter
 
-const TASK_ON := preload("res://assets/game/ui/cell_task_on.png")
-const TASK_OFF := preload("res://assets/game/ui/cell_task_off.png")
-const EN_ON := preload("res://assets/game/ui/cell_energy_on.png")
-const EN_OFF := preload("res://assets/game/ui/cell_energy_off.png")
-
 var cap_lab: Label
 var hint_lab: Label
 var cells: Array[TextureRect] = []
@@ -58,8 +53,8 @@ func set_cells(filled: int, partial := 0.0, extra := "") -> void:
 		hint_lab.text = extra if extra != "" else "%d/%d" % [_filled, cap]
 	else:
 		hint_lab.text = extra if extra != "" else ("%d 格" % _filled)
-	var on_tex: Texture2D = TASK_ON if kind == "task" else EN_ON
-	var off_tex: Texture2D = TASK_OFF if kind == "task" else EN_OFF
+	var on_tex: Texture2D = Rules.tex("res://assets/game/ui/cell_task_on.png") if kind == "task" else Rules.tex("res://assets/game/ui/cell_energy_on.png")
+	var off_tex: Texture2D = Rules.tex("res://assets/game/ui/cell_task_off.png") if kind == "task" else Rules.tex("res://assets/game/ui/cell_energy_off.png")
 	for i in cells.size():
 		cells[i].texture = on_tex if i < _filled else off_tex
 		cells[i].modulate = Color.WHITE if i < _filled else Color(1, 1, 1, 0.72)

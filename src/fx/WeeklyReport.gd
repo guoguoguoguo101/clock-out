@@ -1,7 +1,7 @@
 extends Node2D
 class_name WeeklyReport
 
-const TEX := preload("res://assets/game/props/reports/weekly.png")
+var _tex: Texture2D
 
 var report_id := 0
 var dir := Vector2.DOWN
@@ -19,6 +19,8 @@ var _sound: AudioStreamPlayer2D
 
 
 func setup(p_id: int, pos: Vector2, direction: Vector2, server: bool, speed_mul := 1.0) -> void:
+	if _tex == null:
+		_tex = Rules.tex("res://assets/game/props/reports/weekly.png")
 	report_id = p_id
 	global_position = pos
 	dir = direction.normalized() if direction.length() > 0.01 else Vector2.DOWN
@@ -138,12 +140,12 @@ func _draw_flight() -> void:
 	draw_set_transform(Vector2(3, 8), ang * 0.08, Vector2(1.05, 0.38))
 	draw_circle(Vector2.ZERO, 13.0, Color(0.05, 0.05, 0.06, 0.18))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	if TEX == null:
+	if _tex == null:
 		return
-	var sz := TEX.get_size()
+	var sz := _tex.get_size()
 	var sc := 30.0 / sz.x
 	draw_set_transform(bob, ang, Vector2(sc, sc))
-	draw_texture(TEX, -sz * 0.5)
+	draw_texture(_tex, -sz * 0.5)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	var font := ThemeDB.fallback_font
 	if font:
@@ -154,9 +156,9 @@ func _draw_flight() -> void:
 
 
 func _draw_burst() -> void:
-	if TEX == null:
+	if _tex == null:
 		return
-	var sz := TEX.get_size()
+	var sz := _tex.get_size()
 	var font := ThemeDB.fallback_font
 	for shard in shards:
 		if float(shard["life"]) <= 0.0:
@@ -165,7 +167,7 @@ func _draw_burst() -> void:
 		var p: Vector2 = to_local(shard["p"])
 		var sc: float = 12.0 / sz.x * float(shard["s"])
 		draw_set_transform(p, float(shard["rot"]), Vector2(sc, sc))
-		draw_texture(TEX, -sz * 0.5, Color(1, 1, 1, a))
+		draw_texture(_tex, -sz * 0.5, Color(1, 1, 1, a))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if hit_person and burst_t > 0.28 and font:
 		var pop := (0.55 - burst_t) / 0.27

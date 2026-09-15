@@ -95,6 +95,8 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if Match == null:
+		return
 	apply_daylight(Match.day_progress())
 	_sync_left_desks()
 	_tick_horror(delta)

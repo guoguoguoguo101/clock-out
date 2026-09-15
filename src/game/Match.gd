@@ -1,5 +1,7 @@
 extends Node
 
+const WeeklyReportScript := preload("res://src/fx/WeeklyReport.gd")
+
 signal lobby_changed
 signal match_started
 signal match_ended
@@ -717,7 +719,7 @@ func try_throw_reports(boss: Actor, fan: bool) -> bool:
 func spawn_report(id: int, x: float, y: float, dx: float, dy: float, speed_mul: float = 1.0) -> void:
 	if office == null:
 		return
-	var paper := WeeklyReport.new()
+	var paper := WeeklyReportScript.new()
 	paper.setup(id, Vector2(x, y), Vector2(dx, dy), multiplayer.is_server(), speed_mul)
 	office.add_child(paper)
 	reports[id] = paper
