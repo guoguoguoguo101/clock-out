@@ -420,11 +420,13 @@ func try_bike(rider: Actor) -> bool:
 		return false
 	if rider.skin != Rules.CharSkin.KANGAROO:
 		return false
-	if rider.emp_state != Rules.EmpState.WALK or rider.stand_lock > 0.0:
+	if rider.emp_state != Rules.EmpState.WALK and rider.emp_state != Rules.EmpState.CLOCKING:
+		return false
+	if rider.stand_lock > 0.0 or rider.bike_cd > 0.05:
 		return false
 	if rider.bike_left > 0.0 or rider.carrying_slot >= 0 or rider.carried_by >= 0:
 		return false
-	rider.bike_left = Rules.BIKE_DURATION
+	rider.bike_left = 1.0
 	bike_event.rpc(rider.slot, true)
 	return true
 
@@ -441,7 +443,7 @@ func bike_event(slot: int, on: bool) -> void:
 	var rider := actors.get(slot) as Actor
 	if rider == null:
 		return
-	rider.bike_left = Rules.BIKE_DURATION if on else 0.0
+	rider.bike_left = 1.0 if on else 0.0
 	rider._update_bike_visual(on)
 	if on:
 		rider.say("电瓶车，走起！", 1.3)

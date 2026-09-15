@@ -1539,7 +1539,7 @@ func _refresh_hud() -> void:
 		elif actor.play_kind != "":
 			hint_label.text = "F 卡点 / 拆包装    E 放弃    老板靠近会被约谈"
 		elif actor.skin == Rules.CharSkin.KANGAROO:
-			hint_label.text = "先找精力再开工    空地 E 电瓶车    E 坐下后还要再确认开工    F 摸鱼慢回    Shift 冲刺"
+			hint_label.text = "先找精力再开工    F 骑车 / 下车    下车后才能交互    E 坐下后还要再确认开工    Shift 冲刺"
 		else:
 			hint_label.text = "先找精力：茶水间手冲、饮水机、零食、翻抽屉    E 坐下后还要再确认开工    Shift 冲刺"
 	elif actor != null and actor.kind == Rules.Kind.BOSS:

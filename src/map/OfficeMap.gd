@@ -212,7 +212,7 @@ func _build_furniture() -> void:
 	points["punch_1"] = Vector2(380, 1000)
 	points["meeting"] = Vector2(2120, 1172)
 	points["lounge"] = Vector2(2000, 220)
-	points["stock_0"] = Vector2(1988, 292)
+	points["stock_0"] = Vector2(2110, 328)
 	points["corridor"] = Vector2(1280, Rules.CORRIDOR_Y)
 	points["boss_spawn"] = Vector2(1280, Rules.CORRIDOR_Y)
 	var seats := [
@@ -358,10 +358,10 @@ func _dress_lounge() -> void:
 	_prop("res://assets/game/props/books.png", Vector2(2300, 360), 36, -3)
 	_frame(Rect2(2280, 80, 72, 52), Color(0.10, 0.12, 0.12))
 	_frame(Rect2(1760, 80, 56, 40), Color(0.28, 0.32, 0.28))
-	_solid_prop("res://assets/game/props/stock_machine.png", Vector2(2116, 268), 92, -2, Vector2(54, 36))
-	_prop("res://assets/game/props/horror/chair.png", points["stock_0"] + Vector2(-10, 8), 48, -3)
-	_notice(Vector2(2040, 118), "严禁炒股", 88)
-	_red_notice(Vector2(2188, 132), "内网交易 违纪", 118, 0.06)
+	_solid_prop("res://assets/game/props/stock_machine.png", Vector2(2110, 268), 150, -2, Vector2(70, 42))
+	_prop("res://assets/game/props/horror/chair.png", points["stock_0"] + Vector2(-8, 10), 48, -3)
+	_notice(Vector2(1990, 118), "严禁炒股", 88)
+	_red_notice(Vector2(2110, 148), "E 内网交易  赚了加精力", 150, 0.06)
 
 
 func _dress_lobby() -> void:

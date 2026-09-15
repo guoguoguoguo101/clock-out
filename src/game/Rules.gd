@@ -91,6 +91,7 @@ const CARRY_DURATION := 8.0
 const CARRY_RECOVERY := 0.65
 const BIKE_DURATION := 10.0
 const BIKE_SPEED_MUL := 1.45
+const BIKE_CD := 3.0
 
 const STOCK_TIME := 10.0
 const STOCK_START := 100.0

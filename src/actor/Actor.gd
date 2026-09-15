@@ -65,6 +65,7 @@ var carry_saved_talk := -1.0
 var carry_visual: Node2D
 var landing_left := 0.0
 var bike_left := 0.0
+var bike_cd := 0.0
 var bike_sprite: Sprite2D
 var bike_front: Sprite2D
 var trade_left := 0.0
@@ -182,6 +183,8 @@ func nearby_action() -> String:
 		return "被拉去开会 · 救不了"
 	if stand_lock > 0.0:
 		return "刚复盘完 · 先站一会儿"
+	if _is_riding():
+		return "F 下车才能交互"
 	var map := office()
 	if map == null:
 		return ""
@@ -216,10 +219,10 @@ func nearby_action() -> String:
 		if trade_cd > 0.05:
 			return "内网交易冷却 %.0fs" % ceilf(trade_cd)
 		return "E 炒股 · 赚了加精力"
-	if skin == Rules.CharSkin.KANGAROO and emp_state == Rules.EmpState.WALK and stand_lock <= 0.0:
-		if bike_left > 0.0:
-			return "电瓶车 · 还剩 %.0fs" % ceilf(bike_left)
-		return "E 召唤电瓶车（10秒）"
+	if skin == Rules.CharSkin.KANGAROO and emp_state == Rules.EmpState.WALK:
+		if bike_cd > 0.05:
+			return "电瓶车冷却 %.0fs" % ceilf(bike_cd)
+		return "F 骑电瓶车    下车后才能交互"
 	return ""
 
 
@@ -531,6 +534,26 @@ func _dismount_bike() -> void:
 	if bike_left <= 0.0:
 		return
 	Match.clear_bike(self)
+	bike_cd = maxf(bike_cd, Rules.BIKE_CD)
+
+
+func _try_toggle_bike() -> void:
+	if skin != Rules.CharSkin.KANGAROO:
+		return
+	if emp_state != Rules.EmpState.WALK and emp_state != Rules.EmpState.CLOCKING:
+		return
+	if play_kind != "" or rescue_left > 0.0:
+		return
+	if carrying_slot >= 0 or carried_by >= 0:
+		return
+	if _is_riding():
+		_dismount_bike()
+		say("下车", 0.8)
+		return
+	if bike_cd > 0.05:
+		say("电瓶车冷却 %.0fs" % ceilf(bike_cd), 0.9)
+		return
+	Match.try_bike(self)
 
 
 func _ensure_bike_sprites() -> void:
@@ -682,10 +705,7 @@ func _physics_process(delta: float) -> void:
 
 func _server_tick(delta: float) -> void:
 	carry_recovery = maxf(0.0, carry_recovery - delta)
-	if bike_left > 0.0:
-		bike_left = maxf(0.0, bike_left - delta)
-		if bike_left <= 0.0:
-			Match.clear_bike(self)
+	bike_cd = maxf(0.0, bike_cd - delta)
 	stand_lock = max(0.0, stand_lock - delta)
 	catch_chain = max(0.0, catch_chain - delta)
 	coffee_buff = max(0.0, coffee_buff - delta)
@@ -767,9 +787,11 @@ func _employee_tick(delta: float) -> void:
 				emp_state = Rules.EmpState.WALK
 			return
 		Rules.EmpState.CLOCKING:
+			if want_slack:
+				_try_toggle_bike()
 			var target: Vector2 = office().nearest_punch(global_position)
 			var blocked = office().nearest_door(global_position, 56.0)
-			if blocked != null and blocked.closed:
+			if blocked != null and blocked.closed and not _is_riding():
 				office().try_door(self)
 			_try_start_emp_dash()
 			var clock_speed := _slowed(Rules.EMPLOYEE_SPEED * (Rules.BIKE_SPEED_MUL if bike_left > 0.0 else 1.0))
@@ -819,6 +841,8 @@ func _employee_tick(delta: float) -> void:
 			_tick_energy_play(delta)
 			return
 	# walk
+	if want_slack:
+		_try_toggle_bike()
 	if rescue_left > 0.0:
 		if input_dir.length() > 0.12:
 			clear_rescue()
@@ -879,6 +903,9 @@ func _sit_work(delta: float, slack: bool) -> void:
 func _try_employee_interact() -> void:
 	if stand_lock > 0.0:
 		return
+	if _is_riding():
+		say("先 F 下车", 0.9)
+		return
 	if Match.try_carry(self):
 		return
 	if Match.try_rescue(self):
@@ -929,7 +956,7 @@ func _try_employee_interact() -> void:
 		if map.take_spot(stock, slot):
 			_begin_trade(stock)
 		return
-	Match.try_bike(self)
+	return
 
 
 func _stand_up() -> void:
