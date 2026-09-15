@@ -1,9 +1,6 @@
 extends Control
 class_name StockDesk
 
-const BG := preload("res://assets/game/ui/stock_bg.png")
-const ALERT := preload("res://assets/game/ui/stock_bg_alert.png")
-
 var dim: ColorRect
 var panel: Control
 var bg: TextureRect
@@ -22,6 +19,19 @@ var _start := 100.0
 var _threat := 0.0
 
 
+func _tex(path: String) -> Texture2D:
+	var abs_path := ProjectSettings.globalize_path(path)
+	if FileAccess.file_exists(abs_path):
+		var img := Image.load_from_file(abs_path)
+		if img != null and not img.is_empty():
+			return ImageTexture.create_from_image(img)
+	if ResourceLoader.exists(path):
+		var loaded: Resource = load(path)
+		if loaded is Texture2D:
+			return loaded
+	return null
+
+
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -35,14 +45,14 @@ func _ready() -> void:
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(panel)
 	bg = TextureRect.new()
-	bg.texture = BG
+	bg.texture = _tex("res://assets/game/ui/stock_bg.png")
 	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(bg)
 	alert_bg = TextureRect.new()
-	alert_bg.texture = ALERT
+	alert_bg.texture = _tex("res://assets/game/ui/stock_bg_alert.png")
 	alert_bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	alert_bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	alert_bg.set_anchors_preset(Control.PRESET_FULL_RECT)

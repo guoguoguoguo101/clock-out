@@ -16,7 +16,7 @@ var hud: Control
 var result_panel: Control
 var kpi_label: Label
 var status_label: Label
-var slot_box: HBoxContainer
+var slot_box: Control
 var name_edit: LineEdit
 var ip_edit: LineEdit
 var short_check: CheckBox
@@ -817,11 +817,10 @@ func _build_char_page() -> void:
 	d.amp = 2.0
 	d.base_color = Color(0.72, 0.58, 0.5)
 	char_page.add_child(d)
-	slot_box = HBoxContainer.new()
-	slot_box.position = Vector2(16, 96)
-	slot_box.size = Vector2(1168, 400)
-	slot_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	slot_box.add_theme_constant_override("separation", 8)
+	slot_box = Control.new()
+	slot_box.position = Vector2(16, 88)
+	slot_box.size = Vector2(1168, 420)
+	slot_box.mouse_filter = Control.MOUSE_FILTER_PASS
 	char_page.add_child(slot_box)
 	var back := _lobby_btn("返回走廊", false)
 	back.position = Vector2(16, 516)
@@ -1217,9 +1216,12 @@ func _refresh_lobby() -> void:
 	var returning := lobby != null and not lobby.visible
 	if Match.phase == "lobby":
 		lobby.visible = not Net.is_dedicated
-		hud.visible = false
-		result_panel.visible = false
-		exit_btn.visible = false
+		if hud:
+			hud.visible = false
+		if result_panel:
+			result_panel.visible = false
+		if exit_btn:
+			exit_btn.visible = false
 		if returning:
 			_show_lobby_page("home")
 	if Net.using_go:
@@ -1264,41 +1266,49 @@ func _rebuild_slot_cards() -> void:
 	if slot_box == null:
 		return
 	for c in slot_box.get_children():
-		c.queue_free()
-	for s in [Rules.Slot.EMP_A, Rules.Slot.EMP_B, Rules.Slot.EMP_C, Rules.Slot.EMP_D, Rules.Slot.EMP_E, Rules.Slot.EMP_F, Rules.Slot.BOSS]:
+		slot_box.remove_child(c)
+		c.free()
+	var picks: Array[int] = [Rules.Slot.EMP_A, Rules.Slot.EMP_B, Rules.Slot.EMP_C, Rules.Slot.EMP_D, Rules.Slot.EMP_E, Rules.Slot.EMP_F, Rules.Slot.BOSS]
+	var n := picks.size()
+	var w := 152.0
+	var h := 300.0
+	var gap := 10.0
+	var total := float(n) * w + float(n - 1) * gap
+	var x0 := maxf(0.0, (slot_box.size.x - total) * 0.5)
+	for i in n:
+		var s: int = picks[i]
 		var pid := int(Match.slots.get(s, -1))
 		var who := "缺编"
 		if pid == 0:
 			who = "编外"
 		elif pid > 0:
 			who = str(Match.names.get(pid, "工号%d" % pid))
-		var picked: int = int(s)
-		var wrap := VBoxContainer.new()
-		wrap.custom_minimum_size = Vector2(148, 380)
-		wrap.add_theme_constant_override("separation", 6)
+		var x := x0 + float(i) * (w + gap)
 		var card := Button.new()
-		card.custom_minimum_size = Vector2(148, 300)
+		card.position = Vector2(x, 0)
+		card.size = Vector2(w, h)
 		card.toggle_mode = true
-		card.button_pressed = picked == wanted_slot
+		card.button_pressed = s == wanted_slot
 		card.clip_contents = false
-		card.pressed.connect(func(): _pick_slot(picked))
+		var pick := s
+		card.pressed.connect(func(): _pick_slot(pick))
 		var sb := StyleBoxFlat.new()
 		sb.corner_radius_top_left = 3
 		sb.corner_radius_top_right = 16
 		sb.corner_radius_bottom_right = 4
 		sb.corner_radius_bottom_left = 12
-		sb.bg_color = Color(0.12, 0.08, 0.08, 0.96) if picked != wanted_slot else Color(0.28, 0.08, 0.08, 0.96)
+		sb.bg_color = Color(0.12, 0.08, 0.08, 0.96) if s != wanted_slot else Color(0.28, 0.08, 0.08, 0.96)
 		sb.border_width_bottom = 4
 		sb.border_width_left = 1
-		sb.border_color = Color(0.72, 0.16, 0.12) if picked == wanted_slot else Color(0.28, 0.16, 0.14)
+		sb.border_color = Color(0.72, 0.16, 0.12) if s == wanted_slot else Color(0.28, 0.16, 0.14)
 		card.add_theme_stylebox_override("normal", sb)
 		card.add_theme_stylebox_override("hover", sb)
 		card.add_theme_stylebox_override("pressed", sb)
-		_add_slot_portrait(card, picked, Rect2(14, 8, 120, 168))
+		_add_slot_portrait(card, s, Rect2(16, 8, 120, 168))
 		var nm := HauntTextScript.new()
-		nm.text = str(Rules.SLOT_NAMES[s])
+		nm.text = str(Rules.SLOT_NAMES.get(s, "工位"))
 		nm.position = Vector2(4, 180)
-		nm.size = Vector2(140, 26)
+		nm.size = Vector2(w - 8.0, 26)
 		nm.font_size = 14
 		nm.amp = 2.4
 		nm.align = HORIZONTAL_ALIGNMENT_CENTER
@@ -1307,22 +1317,22 @@ func _rebuild_slot_cards() -> void:
 		var st := HauntTextScript.new()
 		st.text = who if s != Rules.Slot.BOSS else (who + " · 请勿对视")
 		st.position = Vector2(4, 208)
-		st.size = Vector2(140, 44)
+		st.size = Vector2(w - 8.0, 44)
 		st.font_size = 11
 		st.amp = 2.0
 		st.wrap = true
 		st.align = HORIZONTAL_ALIGNMENT_CENTER
 		st.base_color = Color(0.78, 0.32, 0.26) if s == Rules.Slot.BOSS else Color(0.7, 0.58, 0.52)
 		card.add_child(st)
-		wrap.add_child(card)
+		slot_box.add_child(card)
 		if _can_assign_bot() and pid <= 0:
 			var bot_on := pid == 0
 			var bot_btn := Button.new()
 			bot_btn.text = "移出 Bot" if bot_on else "加 Bot"
-			bot_btn.custom_minimum_size = Vector2(148, 32)
-			bot_btn.pressed.connect(func(): _set_slot_bot(picked, not bot_on))
-			wrap.add_child(bot_btn)
-		slot_box.add_child(wrap)
+			bot_btn.position = Vector2(x, h + 8.0)
+			bot_btn.size = Vector2(w, 32)
+			bot_btn.pressed.connect(func(): _set_slot_bot(pick, not bot_on))
+			slot_box.add_child(bot_btn)
 
 
 func _on_started() -> void:
