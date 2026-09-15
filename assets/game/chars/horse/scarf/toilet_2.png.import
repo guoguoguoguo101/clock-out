@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c4bd169ee63f4"
-path="res://.godot/imported/toilet_2.png-4bd169ee63f43652341d696420a22c0c.ctex"
+uid="uid://c4bd17aee63f4"
+path="res://.godot/imported/toilet_2.png-afa0cde5b3af03c53c173aa49205dad7.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/game/chars/horse/scarf/toilet_2.png"
-dest_files=["res://.godot/imported/toilet_2.png-4bd169ee63f43652341d696420a22c0c.ctex"]
+dest_files=["res://.godot/imported/toilet_2.png-afa0cde5b3af03c53c173aa49205dad7.ctex"]
 
 [params]
 

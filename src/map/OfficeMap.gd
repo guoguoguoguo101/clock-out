@@ -5,6 +5,7 @@ const OfficeDoorScript := preload("res://src/map/OfficeDoor.gd")
 const RoomFogScript := preload("res://src/map/RoomFog.gd")
 
 const WALL := 1
+const PAPER_BLOCK := 16
 const TOP_Y := 560.0
 const BOT_Y := 780.0
 const X_TOILET := 500.0
@@ -41,11 +42,12 @@ const PROP_REGION := {
 var points: Dictionary = {}
 var zone_areas: Dictionary = {}
 var occupiers: Dictionary = {}
+var energy_loot: Dictionary = {}
 var window_panes: Array[ColorRect] = []
 var wall_clocks: Array[Node2D] = []
 var clock_labels: Array[Label] = []
 var desk_screens: Array[Sprite2D] = []
-var desk_left: Array[bool] = [false, false, false, false, false]
+var desk_left: Array[bool] = [false, false, false, false, false, false]
 var day_mod: CanvasModulate
 var dusk_veil: ColorRect
 var wall_cams: Array[Sprite2D] = []
@@ -62,6 +64,7 @@ var sway: Array[Sprite2D] = []
 var exit_fx: Array[ColorRect] = []
 var notice_labs: Array[Label] = []
 var shadow_figs: Array[Node2D] = []
+var stall_toilets: Dictionary = {}
 
 
 func _ready() -> void:
@@ -145,7 +148,7 @@ func _build_walls() -> void:
 
 func _wall(rect: Rect2, outer := false) -> void:
 	var body := StaticBody2D.new()
-	body.collision_layer = WALL
+	body.collision_layer = WALL | PAPER_BLOCK
 	body.collision_mask = 0
 	var cs := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
@@ -207,6 +210,7 @@ func _build_furniture() -> void:
 	points["punch_1"] = Vector2(380, 1000)
 	points["meeting"] = Vector2(2120, 1172)
 	points["lounge"] = Vector2(2000, 220)
+	points["stock_0"] = Vector2(1988, 292)
 	points["corridor"] = Vector2(1280, Rules.CORRIDOR_Y)
 	points["boss_spawn"] = Vector2(1280, Rules.CORRIDOR_Y)
 	var seats := [
@@ -215,11 +219,13 @@ func _build_furniture() -> void:
 		Vector2(1010, 1048),
 		Vector2(1130, 1048),
 		Vector2(1240, 1048),
+		Vector2(1360, 1048),
 	]
 	var desk_y := 970.0
 	_shared_table(Vector2(730, desk_y))
 	_shared_table(Vector2(1070, desk_y))
 	_compact_table(Vector2(1240, desk_y))
+	_compact_table(Vector2(1360, desk_y))
 	for i in seats.size():
 		var seat: Vector2 = seats[i]
 		var desk := Vector2(seat.x, desk_y)
@@ -236,6 +242,7 @@ func _build_furniture() -> void:
 	_dress_corridor()
 	_dress_desk_shared()
 	_dress_horror()
+	_build_energy()
 
 
 func _shared_table(center: Vector2) -> void:
@@ -283,8 +290,8 @@ func _partition(rect: Rect2) -> void:
 
 
 func _dress_toilet() -> void:
-	_stall(Rect2(72, 72, 176, 220), points["toilet_0"])
-	_stall(Rect2(272, 72, 176, 220), points["toilet_1"])
+	_stall(Rect2(72, 72, 176, 220), points["toilet_0"], "toilet_0")
+	_stall(Rect2(272, 72, 176, 220), points["toilet_1"], "toilet_1")
 	_rect(Rect2(80, 330, 340, 86), Color(0.91, 0.94, 0.96), -5)
 	_rect(Rect2(80, 330, 340, 12), Color(0.82, 0.86, 0.90), -4)
 	_blocker_rect(Rect2(80, 330, 340, 72))
@@ -297,13 +304,14 @@ func _dress_toilet() -> void:
 	_rect(Rect2(72, 72, 176, 220), Color(0.08, 0.10, 0.12, 0.10), -5)
 
 
-func _stall(rect: Rect2, toilet_at: Vector2) -> void:
+func _stall(rect: Rect2, toilet_at: Vector2, toilet_id: String) -> void:
 	_rect(rect, Color(0.94, 0.96, 0.98), -6)
 	_partition(Rect2(rect.position.x, rect.position.y, 10, rect.size.y))
 	_partition(Rect2(rect.end.x - 10, rect.position.y, 10, rect.size.y))
 	_partition(Rect2(rect.position.x, rect.position.y, rect.size.x, 10))
 	_rect(Rect2(rect.position.x + 48, rect.end.y - 14, rect.size.x - 96, 12), Color(0.78, 0.84, 0.88), -4)
-	_prop("res://assets/game/props/toilet.png", toilet_at, 70, -4)
+	var bowl := _prop("res://assets/game/props/toilet_sit.png", toilet_at + Vector2(-6, 6), 52, -4)
+	stall_toilets[toilet_id] = bowl
 
 
 func _dress_storage() -> void:
@@ -348,6 +356,10 @@ func _dress_lounge() -> void:
 	_prop("res://assets/game/props/books.png", Vector2(2300, 360), 36, -3)
 	_frame(Rect2(2280, 80, 72, 52), Color(0.10, 0.12, 0.12))
 	_frame(Rect2(1760, 80, 56, 40), Color(0.28, 0.32, 0.28))
+	_solid_prop("res://assets/game/props/stock_machine.png", Vector2(2116, 268), 92, -2, Vector2(54, 36))
+	_prop("res://assets/game/props/horror/chair.png", points["stock_0"] + Vector2(-10, 8), 48, -3)
+	_notice(Vector2(2040, 118), "严禁炒股", 88)
+	_red_notice(Vector2(2188, 132), "内网交易 违纪", 118, 0.06)
 
 
 func _dress_lobby() -> void:
@@ -871,13 +883,17 @@ func _rect(rect: Rect2, color: Color, z: int) -> ColorRect:
 
 func _tex(path: String) -> Texture2D:
 	if path.contains("/horror/"):
-		var img := Image.load_from_file(ProjectSettings.globalize_path(path))
-		if img != null and not img.is_empty():
-			return ImageTexture.create_from_image(img)
+		var horror := Image.load_from_file(ProjectSettings.globalize_path(path))
+		if horror != null and not horror.is_empty():
+			return ImageTexture.create_from_image(horror)
 		return null
-	var loaded: Resource = load(path)
-	if loaded is Texture2D:
-		return loaded
+	if ResourceLoader.exists(path):
+		var loaded: Resource = load(path)
+		if loaded is Texture2D:
+			return loaded as Texture2D
+	var img := Image.load_from_file(ProjectSettings.globalize_path(path))
+	if img != null and not img.is_empty():
+		return ImageTexture.create_from_image(img)
 	return null
 
 
@@ -1024,7 +1040,7 @@ func is_desk_area(p: Vector2) -> bool:
 
 
 func reset_shift() -> void:
-	desk_left = [false, false, false, false, false]
+	desk_left = [false, false, false, false, false, false]
 	for s in desk_screens:
 		if s:
 			s.modulate = Color.WHITE
@@ -1033,6 +1049,7 @@ func reset_shift() -> void:
 	for item in doors:
 		item.force_open()
 	apply_daylight(0.0)
+	_reset_energy()
 
 
 func room_title(p: Vector2) -> String:
@@ -1063,7 +1080,8 @@ func _build_zones() -> void:
 	_zone("punch_0", points["punch_0"], 56)
 	_zone("punch_1", points["punch_1"], 56)
 	_zone("meeting", points["meeting"], 110)
-	for i in 5:
+	_zone("stock_0", points["stock_0"], 56)
+	for i in 6:
 		_zone("seat_%d" % (i + 1), points["seat_%d" % (i + 1)], 52)
 		_zone("sup_%d" % (i + 1), points["sup_%d" % (i + 1)], 60)
 
@@ -1082,6 +1100,105 @@ func _zone(id: String, pos: Vector2, radius: float) -> void:
 	add_child(area)
 	zone_areas[id] = area
 	occupiers[id] = -1
+
+
+func nearest_energy(from: Vector2, max_d: float) -> String:
+	var best := ""
+	var best_d := max_d
+	for id in energy_loot.keys():
+		var loot: Dictionary = energy_loot[id]
+		if loot.get("used", false):
+			continue
+		if occupiers.get(id, -1) != -1:
+			continue
+		if not points.has(id):
+			continue
+		var d: float = from.distance_to(points[id])
+		if d < best_d:
+			best_d = d
+			best = id
+	return best
+
+
+func energy_prompt(id: String) -> String:
+	if str(id).begins_with("fridge"):
+		return "E 翻冰箱 · 不是你的也先垫一口"
+	var kind := energy_kind(id)
+	match kind:
+		"vend":
+			return "E 投币柜 · 停格出货"
+		"rummage":
+			return "E 翻抽屉 · 卡点摸零食"
+		"water":
+			return "E 接一杯水"
+		"snack":
+			return "E 搜刮桌面零食"
+		_:
+			return "E 找精力"
+
+
+func energy_kind(id: String) -> String:
+	if not energy_loot.has(id):
+		return ""
+	return str(energy_loot[id].get("kind", ""))
+
+
+func energy_pos(id: String) -> Vector2:
+	return points.get(id, Vector2.ZERO)
+
+
+func take_energy(id: String, actor_id: int) -> bool:
+	if id == "" or not energy_loot.has(id):
+		return false
+	if energy_loot[id].get("used", false):
+		return false
+	return take_spot(id, actor_id)
+
+
+func free_energy(id: String, actor_id: int) -> void:
+	free_spot(id, actor_id)
+
+
+func consume_energy(id: String) -> void:
+	if not energy_loot.has(id):
+		return
+	if not energy_loot[id].get("once", false):
+		return
+	energy_loot[id]["used"] = true
+	var spr = energy_loot[id].get("sprite")
+	if spr:
+		spr.visible = false
+
+
+func _reset_energy() -> void:
+	for id in energy_loot.keys():
+		energy_loot[id]["used"] = false
+		var spr = energy_loot[id].get("sprite")
+		if spr:
+			spr.visible = true
+		occupiers[id] = -1
+
+
+func _build_energy() -> void:
+	_energy_spot("vend_0", "vend", Vector2(1348, 352), "res://assets/game/props/energy/vending.png", 78, false)
+	_energy_spot("water_0", "water", Vector2(1588, 248), "res://assets/game/props/energy/water_cup.png", 28, false)
+	_energy_spot("fridge_0", "rummage", Vector2(1788, 268), "res://assets/game/props/energy/fridge.png", 70, false)
+	_energy_spot("rummage_0", "rummage", Vector2(640, 250), "res://assets/game/props/energy/drawer.png", 64, true)
+	_energy_spot("rummage_1", "rummage", Vector2(840, 380), "res://assets/game/props/energy/drawer.png", 64, true)
+	_energy_spot("snack_0", "snack", Vector2(600, 1008), "res://assets/game/props/energy/snack_choco.png", 28, true)
+	_energy_spot("snack_1", "snack", Vector2(1188, 1008), "res://assets/game/props/energy/snack_cookie.png", 30, true)
+	_energy_spot("snack_2", "snack", Vector2(2010, 330), "res://assets/game/props/energy/snack_noodle.png", 34, true)
+	_energy_spot("snack_3", "snack", Vector2(2300, 390), "res://assets/game/props/energy/can_drink.png", 22, true)
+	_energy_spot("snack_4", "snack", Vector2(380, 1188), "res://assets/game/props/energy/snack_choco.png", 26, true)
+	_notice(Vector2(1288, 318), "投币续命", 92)
+	_notice(Vector2(1760, 210), "不是你的冰箱", 108)
+
+
+func _energy_spot(id: String, kind: String, pos: Vector2, path: String, width: float, once: bool) -> void:
+	points[id] = pos
+	occupiers[id] = -1
+	var spr := _prop(path, pos, width, -2)
+	energy_loot[id] = {"kind": kind, "once": once, "used": false, "sprite": spr}
 
 
 func seat_for_slot(slot: int) -> Vector2:
@@ -1130,12 +1247,20 @@ func take_spot(id: String, actor_id: int) -> bool:
 	if occupiers.get(id, -1) != -1 and occupiers[id] != actor_id:
 		return false
 	occupiers[id] = actor_id
+	_set_stall_bowl_visible(id)
 	return true
 
 
 func free_spot(id: String, actor_id: int) -> void:
 	if id != "" and occupiers.get(id, -1) == actor_id:
 		occupiers[id] = -1
+		_set_stall_bowl_visible(id)
+
+
+func _set_stall_bowl_visible(id: String) -> void:
+	if not stall_toilets.has(id):
+		return
+	(stall_toilets[id] as CanvasItem).visible = occupiers.get(id, -1) == -1
 
 
 func path_to(from: Vector2, to: Vector2) -> Vector2:

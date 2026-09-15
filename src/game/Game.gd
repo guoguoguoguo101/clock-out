@@ -1,8 +1,11 @@
 extends Node2D
 
 const MeterScript := preload("res://src/ui/Meter.gd")
+const CellMeterScript := preload("res://src/ui/CellMeter.gd")
+const EnergyPlayScript := preload("res://src/ui/EnergyPlay.gd")
 const LobbyHauntScript := preload("res://src/ui/LobbyHaunt.gd")
 const HauntTextScript := preload("res://src/ui/HauntText.gd")
+const StockDeskScript := preload("res://src/ui/StockDesk.gd")
 const BODY_SHADER := preload("res://src/actor/body.gdshader")
 
 var office: OfficeMap
@@ -20,8 +23,7 @@ var short_check: CheckBox
 var hint_label: Label
 var hours_bar
 var energy_bar
-var hours_num: Label
-var energy_num: Label
+var energy_play
 var time_label: Label
 var state_label: Label
 var you_role: Label
@@ -52,6 +54,7 @@ var room_list_box: VBoxContainer
 var enter_char_btn: Button
 var join_status: Label
 var fill_bots_btn: Button
+var stock_desk
 
 var wanted_slot := Rules.Slot.EMP_A
 var _pulse_interact := false
@@ -59,11 +62,14 @@ var _pulse_slack := false
 var _pulse_meeting := false
 var _pulse_kpi := false
 var _pulse_dash := false
+var _pulse_report := false
+var _pulse_fan := false
 var _e_down := false
 var _f_down := false
 var _q_down := false
 var _r_down := false
 var _shift_down := false
+var _g_down := false
 var _esc_down := false
 var _cam_z := 1.1
 var _shake := 0.0
@@ -90,6 +96,7 @@ func _ready() -> void:
 	Match.caught.connect(_on_caught)
 	Match.talked.connect(_on_talked)
 	Match.rescued.connect(_on_rescued)
+	Match.stock_played.connect(_on_stock)
 	Net.status_changed.connect(_refresh_lobby)
 	Net.peer_list_changed.connect(_refresh_lobby)
 	Net.room_ready.connect(_on_room_ready)
@@ -170,20 +177,18 @@ func _build_ui() -> void:
 	state_label.add_theme_font_size_override("font_size", 11)
 	state_label.add_theme_color_override("font_color", Color(0.70, 0.76, 0.80))
 	card.add_child(state_label)
-	hours_bar = MeterScript.new()
-	hours_bar.position = Vector2(18, 116)
-	hours_bar.setup("工时", Color(0.24, 0.86, 0.94), 148, "res://assets/game/ui/hours.png")
-	_style_watch_meter(hours_bar)
+	hours_bar = CellMeterScript.new()
+	hours_bar.position = Vector2(18, 112)
+	hours_bar.setup("任务", "task", Rules.TASK_COUNT)
 	hud.add_child(hours_bar)
-	energy_bar = MeterScript.new()
-	energy_bar.position = Vector2(18, 160)
-	energy_bar.setup("精力", Color(0.96, 0.78, 0.29), 148, "res://assets/game/ui/energy.png")
-	_style_watch_meter(energy_bar)
+	energy_bar = CellMeterScript.new()
+	energy_bar.position = Vector2(18, 164)
+	energy_bar.setup("精力", "energy", Rules.ENERGY_CELLS)
 	hud.add_child(energy_bar)
-	hours_num = hours_bar.num
-	energy_num = energy_bar.num
+	energy_play = EnergyPlayScript.new()
+	hud.add_child(energy_play)
 	lamps = HBoxContainer.new()
-	lamps.position = Vector2(18, 208)
+	lamps.position = Vector2(18, 226)
 	lamps.add_theme_constant_override("separation", 8)
 	hud.add_child(lamps)
 	_build_monitors()
@@ -231,7 +236,7 @@ func _build_ui() -> void:
 	kpi_fx.material = kpi_mat
 	hud.add_child(kpi_fx)
 	kpi_body = Label.new()
-	kpi_body.text = "内部邮件  KPI 暴击\n全员工时 +10\n立即打开"
+	kpi_body.text = "内部邮件  KPI 暴击\n全员再加一单\n立即打开"
 	kpi_body.set_anchors_preset(Control.PRESET_CENTER)
 	kpi_body.offset_left = -180
 	kpi_body.offset_top = -48
@@ -255,7 +260,7 @@ func _build_ui() -> void:
 	hint_label.add_theme_color_override("font_color", Color(0.35, 0.38, 0.42, 0.85))
 	hud.add_child(hint_label)
 	kpi_label = Label.new()
-	kpi_label.text = "全员 KPI  工时 +10"
+	kpi_label.text = "全员 KPI  再加一单"
 	kpi_label.visible = false
 	kpi_label.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	kpi_label.offset_top = 18
@@ -289,6 +294,11 @@ func _build_ui() -> void:
 	catch_banner.add_theme_color_override("font_color", Color(0.82, 0.22, 0.18))
 	catch_banner.visible = false
 	hud.add_child(catch_banner)
+	stock_desk = StockDeskScript.new()
+	hud.add_child(stock_desk)
+	hours_bar.z_index = 24
+	energy_bar.z_index = 24
+	energy_play.z_index = 40
 	hud.move_child(fear_fx, 0)
 	hud.move_child(catch_veil, 1)
 
@@ -688,7 +698,7 @@ func _build_home_page() -> void:
 	home_page.add_child(status_label)
 
 	var hint := HauntTextScript.new()
-	hint.text = "员工：小马 / 兔子 / 牛 / 鹈鹕 / 袋鼠    老板：老虎\n工时扣完才能打卡。未打卡，视为自愿加班。"
+	hint.text = "员工：小马 / 兔子 / 牛 / 鹈鹕 / 袋鼠 / 小狗    老板：老虎\n工时扣完才能打卡。未打卡，视为自愿加班。"
 	hint.position = Vector2(0, 612)
 	hint.size = Vector2(430, 48)
 	hint.font_size = 12
@@ -965,17 +975,17 @@ func _add_slot_portrait(card: Control, slot: int, rect: Rect2) -> void:
 	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(plate)
 	var body := _portrait_rect(_lobby_tex("res://assets/game/chars/%s/idle_0.png" % pack), rect.position, rect.size)
+	var scarf_tex := _lobby_tex("res://assets/game/chars/%s/scarf/idle_0.png" % pack)
 	if pack == "horse":
 		var body_mat := ShaderMaterial.new()
 		body_mat.shader = BODY_SHADER
 		body_mat.set_shader_parameter("body_color", Rules.body_color(skin))
 		body.material = body_mat
-	else:
+	elif scarf_tex == null:
 		var haunt := ShaderMaterial.new()
 		haunt.shader = preload("res://src/ui/lobby_haunt.gdshader")
 		body.material = haunt
 	card.add_child(body)
-	var scarf_tex := _lobby_tex("res://assets/game/chars/%s/scarf/idle_0.png" % pack)
 	if scarf_tex != null:
 		var scarf := _portrait_rect(scarf_tex, rect.position, rect.size)
 		scarf.modulate = Rules.scarf_color(skin)
@@ -994,6 +1004,8 @@ func _char_pack(slot: int) -> String:
 			return "pelican"
 		Rules.Slot.EMP_E:
 			return "kangaroo"
+		Rules.Slot.EMP_F:
+			return "dog"
 		_:
 			return "horse"
 
@@ -1007,8 +1019,8 @@ func _panel(rect: Rect2, color: Color) -> ColorRect:
 
 
 func _build_monitors() -> void:
-	var nicks := ["马", "兔", "牛", "鹈", "袋"]
-	for i in 5:
+	var nicks := ["马", "兔", "牛", "鹈", "袋", "狗"]
+	for i in 6:
 		var box := ColorRect.new()
 		box.color = Color(0.08, 0.09, 0.10, 0.88)
 		box.custom_minimum_size = Vector2(36, 28)
@@ -1022,7 +1034,7 @@ func _build_monitors() -> void:
 		box.add_child(snow)
 		mate_snow.append(snow)
 		var lab := Label.new()
-		lab.text = nicks[i]
+		lab.text = nicks[i] if i < nicks.size() else "?"
 		lab.position = Vector2(4, 6)
 		lab.size = Vector2(28, 16)
 		lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1243,7 +1255,7 @@ func _refresh_lobby() -> void:
 		return
 	for c in slot_box.get_children():
 		c.queue_free()
-	for s in [Rules.Slot.EMP_A, Rules.Slot.EMP_B, Rules.Slot.EMP_C, Rules.Slot.EMP_D, Rules.Slot.EMP_E, Rules.Slot.BOSS]:
+	for s in [Rules.Slot.EMP_A, Rules.Slot.EMP_B, Rules.Slot.EMP_C, Rules.Slot.EMP_D, Rules.Slot.EMP_E, Rules.Slot.EMP_F, Rules.Slot.BOSS]:
 		var pid := int(Match.slots.get(s, -1))
 		var who := "缺编"
 		if pid == 0:
@@ -1411,11 +1423,25 @@ func _on_rescued(slot: int, by_slot: int) -> void:
 		_flash_banner("%s 把 %s 捞走了" % [helper, who], Color(0.22, 0.52, 0.36), 1.0)
 
 
+func _on_stock(slot: int, pnl: float, energy_loss: float, boosted: bool) -> void:
+	var who := _slot_nick(slot)
+	if boosted:
+		_flash_banner("%s 持股进账 · 精力+1  全员加速（%+.0f）" % [who, pnl], Color(0.28, 0.82, 0.42), 1.7)
+		_cam_punch = maxf(_cam_punch, 0.22)
+		return
+	if Match.my_slot() != slot:
+		return
+	if pnl < -Rules.STOCK_WIN:
+		_flash_banner("亏了  精力还在  %+0.1f" % pnl, Color(0.78, 0.62, 0.42), 1.1)
+	else:
+		_flash_banner("平盘  %+0.1f" % pnl, Color(0.70, 0.72, 0.74), 0.9)
+
+
 func _on_caught(slot: int, _repeat: bool, add_hours: float) -> void:
 	var my := Match.my_slot()
 	var vic: Actor = Match.actors.get(slot) as Actor
 	if vic:
-		vic.say("工时 +%d" % int(add_hours), 1.5)
+		vic.say("这单废了", 1.5)
 	if my == slot:
 		_catch_t = 0.8
 		_shake = 0.4
@@ -1436,7 +1462,7 @@ func _same_view_as(other: Actor) -> bool:
 
 
 func _slot_nick(slot: int) -> String:
-	var nicks := ["小马", "兔子", "牛", "鹈鹕", "袋鼠"]
+	var nicks := ["小马", "兔子", "牛", "鹈鹕", "袋鼠", "小狗"]
 	if Rules.slot_is_employee(slot):
 		return nicks[Rules.employee_index(slot)]
 	return "老板"
@@ -1460,30 +1486,49 @@ func _refresh_hud() -> void:
 		you_role.text = "工牌 · %s" % Rules.SLOT_NAMES.get(actor.slot, "员工")
 		hours_bar.visible = true
 		energy_bar.visible = true
-		hours_bar.set_amount(actor.hours)
-		energy_bar.set_amount(actor.energy)
-		state_label.text = str(Rules.STATE_NAMES.get(actor.emp_state, ""))
+		hours_bar.set_cells(actor.tasks_done, actor.task_progress if actor.tasking else 0.0, Rules.task_name(actor.tasks_done) if actor.tasks_done < Rules.TASK_COUNT else "可打卡")
+		var en_extra := "%d 格" % actor.energy_cells
+		if actor.energy_cells < Rules.ENERGY_CELLS and actor.energy_charge > 0.04:
+			en_extra = "回血 %.0f%%" % (actor.energy_charge * 100.0)
+		energy_bar.set_cells(actor.energy_cells, actor.energy_charge, en_extra)
+		var st := str(Rules.STATE_NAMES.get(actor.emp_state, ""))
 		if actor.emp_state == Rules.EmpState.TALK:
-			state_label.text = "约谈中 · 督导中" if Match.is_watched(actor) else "约谈中 · 可捞"
+			st = "约谈中 · 督导中" if Match.is_watched(actor) else "约谈中 · 可捞"
+		if actor.slow_left > 0.05:
+			st += "  被周报压住 %.0fs" % actor.slow_left
+		if actor.dash_cd > 0.05:
+			st += "  冲刺 %.0fs" % actor.dash_cd
+		else:
+			st += "  冲刺就绪"
+		state_label.text = st
 		if actor.emp_state == Rules.EmpState.TALK:
 			hint_label.text = "约谈中 · 等同事捞人    老板在这间屋就捞不走"
+		elif actor.emp_state == Rules.EmpState.TRADE:
+			hint_label.text = "赚了 +1 精力、开工加速、全员加速    亏了不扣    页面发红就是老板近了    F 买/卖    E 撤"
 		elif actor.emp_state == Rules.EmpState.WORK or actor.emp_state == Rules.EmpState.SLACK:
-			hint_label.text = "WASD 起身    E 起身    F 摸鱼    同事被约谈时走过去 E 捞人"
+			if actor.tasking:
+				hint_label.text = "正在写「%s」  WASD 会作废当前格    F 摸鱼无效" % Rules.task_name(actor.tasks_done)
+			elif actor.energy_cells <= 0:
+				hint_label.text = "没精力无法开工    F 摸鱼慢慢回    或去茶水间/抽屉/零食柜卡点续命"
+			else:
+				hint_label.text = "E 确认开工「%s」    F 摸鱼    WASD 起身" % Rules.task_name(actor.tasks_done)
+		elif actor.play_kind != "":
+			hint_label.text = "F 卡点 / 拆包装    E 放弃    老板靠近会被约谈"
 		elif actor.skin == Rules.CharSkin.KANGAROO:
-			hint_label.text = "空地 E 电瓶车    E 坐下 / 续命 / 捞人 / 关门    F 摸鱼    WASD 走动"
+			hint_label.text = "先找精力再开工    空地 E 电瓶车    E 坐下后还要再确认开工    F 摸鱼慢回    Shift 冲刺"
 		else:
-			hint_label.text = "E 坐下 / 续命 / 捞人 / 关门    F 摸鱼    WASD 走动"
+			hint_label.text = "先找精力：茶水间手冲、饮水机、零食、翻抽屉    E 坐下后还要再确认开工    Shift 冲刺"
 	elif actor != null and actor.kind == Rules.Kind.BOSS:
 		you_role.text = "工牌 · 老板"
-		state_label.text = "开会 %.0fs  KPI %.0fs  冲刺 %.0fs" % [actor.meeting_cd, actor.kpi_cd, actor.dash_cd]
-		hint_label.text = "E 约谈 / 开门    盯着复盘加速    Q 开会    R KPI    Shift 冲刺"
+		state_label.text = "开会 %.0fs  KPI %.0fs  冲刺 %.0fs  周报 %.0fs  扇形 %.0fs" % [actor.meeting_cd, actor.kpi_cd, actor.dash_cd, actor.report_cd, actor.fan_cd]
+		hint_label.text = "E 约谈 / 开门    F 扔周报    G 扇形周报    Q 开会    R KPI    Shift 冲刺"
 	hint_label.modulate.a = clampf(_help_t / 2.0, 0.0, 1.0)
 	_refresh_lamps()
 
 
 func _refresh_lamps() -> void:
 	var me := _local_actor()
-	var nicks := ["马", "兔", "牛", "鹈", "袋"]
+	var nicks := ["马", "兔", "牛", "鹈", "袋", "狗"]
 	for i in mate_box.size():
 		var slot := Rules.Slot.EMP_A + i
 		var box := mate_box[i]
@@ -1491,7 +1536,7 @@ func _refresh_lamps() -> void:
 		var snow := mate_snow[i]
 		var c := Color(0.10, 0.11, 0.12, 0.9)
 		var snow_a := 0.0
-		lab.text = nicks[i]
+		lab.text = nicks[i] if i < nicks.size() else "?"
 		if Match.actors.has(slot):
 			var e: Actor = Match.actors[slot]
 			var seen := me != null and office != null and office.same_view(me.global_position, e.global_position)
@@ -1508,6 +1553,9 @@ func _refresh_lamps() -> void:
 				lab.text = "救命"
 			elif e.emp_state == Rules.EmpState.SLACK:
 				c = Color(0.28, 0.20, 0.08, 0.9)
+			elif e.emp_state == Rules.EmpState.TRADE:
+				c = Color(0.28, 0.22, 0.08, 0.95)
+				lab.text = "盘中"
 			elif e.emp_state == Rules.EmpState.WORK:
 				c = Color(0.10, 0.22, 0.14, 0.9)
 			else:
@@ -1546,6 +1594,11 @@ func _process(delta: float) -> void:
 	_edge_keys()
 	_update_camera(delta)
 	var actor := _local_actor()
+	if stock_desk:
+		var threat := Match.trade_threat(actor) if actor != null and actor.emp_state == Rules.EmpState.TRADE else 0.0
+		stock_desk.bind(actor, threat)
+	if energy_play:
+		energy_play.bind(actor)
 	if actor == null or not Match.playing:
 		return
 	var dir := Vector2.ZERO
@@ -1559,19 +1612,21 @@ func _process(delta: float) -> void:
 		dir.y += 1
 	if Net.using_go:
 		_go_input_t += delta
-		var pulsed := _pulse_interact or _pulse_slack or _pulse_meeting or _pulse_kpi or _pulse_dash
+		var pulsed := _pulse_interact or _pulse_slack or _pulse_meeting or _pulse_kpi or _pulse_dash or _pulse_report or _pulse_fan
 		if pulsed or _go_input_t >= 0.05:
 			_go_input_t = 0.0
 			Net.send_input(dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash)
 	elif Net.is_enet_server():
-		actor.apply_input(dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash)
+		actor.apply_input(dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash, _pulse_report, _pulse_fan)
 	else:
-		actor.recv_input.rpc_id(1, dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash)
+		actor.recv_input.rpc_id(1, dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash, _pulse_report, _pulse_fan)
 	_pulse_interact = false
 	_pulse_slack = false
 	_pulse_meeting = false
 	_pulse_kpi = false
 	_pulse_dash = false
+	_pulse_report = false
+	_pulse_fan = false
 
 
 func _update_camera(delta: float) -> void:
@@ -1616,7 +1671,10 @@ func _update_camera(delta: float) -> void:
 			elif threat > 0.32:
 				warn = "督导在附近"
 				veil_a = 0.05 * threat
-		if actor.emp_state == Rules.EmpState.TALK:
+		if actor.emp_state == Rules.EmpState.TRADE:
+			warn = ""
+			veil_a = 0.0
+		elif actor.emp_state == Rules.EmpState.TALK:
 			veil_a = maxf(veil_a, 0.16)
 			if warn == "":
 				warn = "约谈中 · 对齐颗粒度"
@@ -1664,7 +1722,7 @@ func _update_camera(delta: float) -> void:
 		var snow := mate_snow[i]
 		if snow.color.a > 0.04:
 			snow.color.a = 0.10 + 0.16 * absf(sin(_breath_t * 12.0 + float(i) * 1.7))
-	if mate_box.size() == 5:
+	if mate_box.size() >= 5:
 		for i in mate_box.size():
 			var slot := Rules.Slot.EMP_A + i
 			var e: Actor = Match.actors.get(slot) as Actor
@@ -1699,11 +1757,19 @@ func _edge_keys() -> void:
 	var q := Input.is_physical_key_pressed(KEY_Q)
 	var r := Input.is_physical_key_pressed(KEY_R)
 	var sh := Input.is_physical_key_pressed(KEY_SHIFT)
+	var g := Input.is_physical_key_pressed(KEY_G)
 	var esc := Input.is_physical_key_pressed(KEY_ESCAPE)
+	var actor := _local_actor()
+	var boss := actor != null and actor.kind == Rules.Kind.BOSS
 	if e and not _e_down:
 		_pulse_interact = true
 	if f and not _f_down:
-		_pulse_slack = true
+		if boss:
+			_pulse_report = true
+		else:
+			_pulse_slack = true
+	if g and not _g_down and boss:
+		_pulse_fan = true
 	if q and not _q_down:
 		_pulse_meeting = true
 	if r and not _r_down:
@@ -1717,6 +1783,7 @@ func _edge_keys() -> void:
 	_q_down = q
 	_r_down = r
 	_shift_down = sh
+	_g_down = g
 	_esc_down = esc
 
 

@@ -42,9 +42,16 @@ func tick(delta: float) -> void:
 		actor.input_dir = d.normalized()
 		if d.length() < Rules.CATCH_RANGE + 8.0:
 			actor.want_interact = true
-		if wait <= 0.0 and d.length() < 260.0:
-			actor.want_meeting = true
-			wait = 4.0
+		if wait <= 0.0 and d.length() < 280.0:
+			if d.length() > 88.0:
+				if d.length() > 130.0 and actor.fan_cd <= 0.0:
+					actor.want_fan = true
+				else:
+					actor.want_report = true
+				wait = 1.1
+			else:
+				actor.want_meeting = true
+				wait = 4.0
 		return
 	var spots := [
 		map.points["sup_1"],
@@ -52,6 +59,7 @@ func tick(delta: float) -> void:
 		map.points["sup_3"],
 		map.points["punch_0"],
 		map.points["toilet_0"],
+		map.points["stock_0"],
 		map.points["sup_2"],
 	]
 	var target: Vector2 = spots[patrol % spots.size()]
@@ -81,7 +89,7 @@ func _find_prey() -> Actor:
 		var e := a as Actor
 		if e.kind != Rules.Kind.EMPLOYEE:
 			continue
-		if e.emp_state != Rules.EmpState.SLACK and e.emp_state != Rules.EmpState.COFFEE and e.emp_state != Rules.EmpState.TOILET:
+		if e.emp_state != Rules.EmpState.SLACK and e.emp_state != Rules.EmpState.COFFEE and e.emp_state != Rules.EmpState.TOILET and e.emp_state != Rules.EmpState.TRADE:
 			continue
 		var d := e.global_position.distance_to(actor.global_position)
 		if d < best_d:

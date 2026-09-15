@@ -8,6 +8,7 @@ const PACK := {
 	Rules.CharSkin.PELICAN: "pelican",
 	Rules.CharSkin.KANGAROO: "kangaroo",
 	Rules.CharSkin.TIGER: "tiger",
+	Rules.CharSkin.DOG: "dog",
 }
 
 const IDLE := ["idle_0", "idle_1", "idle_2", "idle_3"]
@@ -17,11 +18,13 @@ const WORK := ["work_0", "work_1", "work_2", "work_3"]
 const SLEEP := ["sleep_0", "sleep_1", "sleep_2", "sleep_3"]
 const TOILET := ["toilet_0", "toilet_1", "toilet_2", "toilet_3"]
 const RIDE := ["ride_0", "ride_1", "ride_2", "ride_3"]
+const TRADE := ["trade_0", "trade_1"]
 const FALLBACK := {
 	"work": "work_0",
 	"sleep": "sleep_0",
 	"toilet": "toilet_0",
 	"ride": "idle_0",
+	"trade": "trade_0",
 }
 
 static var _cache: Dictionary = {}
@@ -41,6 +44,18 @@ static func tex(skin: int, pose: String) -> Texture2D:
 
 static func has_scarf_layer(skin: int) -> bool:
 	return scarf_tex(skin, "idle_0") != null
+
+
+static func bowl_tex(skin: int) -> Texture2D:
+	var pack := pack_id(skin)
+	var key := "%s/bowl" % pack
+	if _cache.has(key):
+		return _cache[key] as Texture2D
+	var tex := _try_tex("res://assets/game/chars/%s/bowl.png" % pack)
+	if tex == null and pack in ["pelican", "dog"]:
+		tex = _try_tex("res://assets/game/props/toilet_sit_layer.png")
+	_cache[key] = tex
+	return tex
 
 
 static func scarf_tex(skin: int, pose: String) -> Texture2D:
@@ -97,5 +112,7 @@ static func loop_frames(anim: String) -> PackedStringArray:
 			return PackedStringArray(TOILET)
 		"ride":
 			return PackedStringArray(RIDE)
+		"trade":
+			return PackedStringArray(TRADE)
 		_:
 			return PackedStringArray(IDLE)

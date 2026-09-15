@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c9f8c1c6502e4"
-path="res://.godot/imported/run_1.png-9f8c1c6502e42f00ce5046416478d125.ctex"
+uid="uid://daf8c1c6502e4"
+path="res://.godot/imported/run_1.png-e56f735a3e4cb17cfbc25cbf1c0a24eb.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/game/chars/horse/scarf/run_1.png"
-dest_files=["res://.godot/imported/run_1.png-9f8c1c6502e42f00ce5046416478d125.ctex"]
+dest_files=["res://.godot/imported/run_1.png-e56f735a3e4cb17cfbc25cbf1c0a24eb.ctex"]
 
 [params]
 

@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c4c7e5b978f2d"
-path="res://.godot/imported/walk_2.png-4c7e5b978f2d61e9bfb1afa8f899ec94.ctex"
+uid="uid://c4c7e5ca78f2d"
+path="res://.godot/imported/walk_2.png-cddb629470bd7e4849a6ad7f6922c09b.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/game/chars/horse/scarf/walk_2.png"
-dest_files=["res://.godot/imported/walk_2.png-4c7e5b978f2d61e9bfb1afa8f899ec94.ctex"]
+dest_files=["res://.godot/imported/walk_2.png-cddb629470bd7e4849a6ad7f6922c09b.ctex"]
 
 [params]
 

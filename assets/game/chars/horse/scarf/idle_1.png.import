@@ -3,7 +3,7 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://ce437728a6585"
-path="res://.godot/imported/idle_1.png-e437728a658523bf76f953df4bd9952f.ctex"
+path="res://.godot/imported/idle_1.png-5500469c07c61101d2ba8f091e646d66.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/game/chars/horse/scarf/idle_1.png"
-dest_files=["res://.godot/imported/idle_1.png-e437728a658523bf76f953df4bd9952f.ctex"]
+dest_files=["res://.godot/imported/idle_1.png-5500469c07c61101d2ba8f091e646d66.ctex"]
 
 [params]
 

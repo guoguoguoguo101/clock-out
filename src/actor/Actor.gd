@@ -8,11 +8,13 @@ const SCARF_SHADER := preload("res://src/actor/scarf.gdshader")
 const BODY_SHADER := preload("res://src/actor/body.gdshader")
 const PAPER_TEX := preload("res://assets/game/props/paper.png")
 const COFFEE_TEX := preload("res://assets/game/props/coffee.png")
+const WEEKLY_TEX := preload("res://assets/game/props/reports/weekly.png")
 
 @onready var name_label: Label = $Name
 
 var body_sprite: Sprite2D
 var scarf_sprite: Sprite2D
+var bowl_sprite: Sprite2D
 var zzz_label: Label
 var hold_sprite: Sprite2D
 var hours_chip: Label
@@ -31,6 +33,17 @@ var display_name := ""
 
 var hours := Rules.HOURS_START
 var energy := Rules.ENERGY_START
+var energy_cells := 0
+var energy_charge := 0.0
+var tasks_done := 0
+var task_progress := 0.0
+var tasking := false
+var play_kind := ""
+var play_t := 0.0
+var play_mark := 0.5
+var play_hits := 0
+var play_lock := 0.0
+var play_msg := ""
 var emp_state := Rules.EmpState.WALK
 var coffee_buff := 0.0
 var stand_lock := 0.0
@@ -44,6 +57,8 @@ var talk_progress := 0.0
 var rescue_left := 0.0
 var rescue_slot := -1
 var boost_left := 0.0
+var slow_left := 0.0
+var _slow_flash := 0.0
 var carrying_slot := -1
 var carried_by := -1
 var carry_left := 0.0
@@ -55,11 +70,24 @@ var landing_left := 0.0
 var bike_left := 0.0
 var bike_sprite: Sprite2D
 var bike_front: Sprite2D
+var trade_left := 0.0
+var trade_cd := 0.0
+var trade_price := Rules.STOCK_START
+var trade_cash := Rules.STOCK_START
+var trade_shares := 0.0
+var trade_holding := false
+var trade_tick := 0.0
+var trade_history: PackedFloat32Array = PackedFloat32Array()
+var _trade_settling := false
 
 var meeting_cd := 0.0
 var kpi_cd := 0.0
 var dash_cd := 0.0
 var dash_left := 0.0
+var dash_dir := Vector2.DOWN
+var report_cd := 0.0
+var fan_cd := 0.0
+var throw_flash := 0.0
 var match_elapsed := 0.0
 var kpi_flash := 0.0
 
@@ -69,6 +97,8 @@ var want_slack := false
 var want_meeting := false
 var want_kpi := false
 var want_dash := false
+var want_report := false
+var want_fan := false
 
 var _sync_acc := 0.0
 var _remote_pos := Vector2.ZERO
@@ -132,9 +162,23 @@ func nearby_action() -> String:
 	if rescue_left > 0.0:
 		return "正在捞人…"
 	if emp_state == Rules.EmpState.WORK or emp_state == Rules.EmpState.SLACK:
-		return "E 起身    F 摸鱼"
+		if tasking:
+			return "正在写%s · WASD 会作废    %.0f%%" % [Rules.task_name(tasks_done), task_progress * 100.0]
+		if energy_cells <= 0:
+			return "没精力 · F 摸鱼充一格    WASD 起身去找吃的"
+		return "E 确认开工「%s」    F 摸鱼    WASD 起身" % Rules.task_name(tasks_done)
+	if play_kind != "":
+		if play_kind == "snack":
+			return "F 拆包装  %d/5    E 扔掉" % play_hits
+		if play_kind == "water":
+			return "水位晃到刚好满时按 F    E 撤"
+		return "F 卡点续命    E 撤了"
 	if emp_state == Rules.EmpState.COFFEE or emp_state == Rules.EmpState.TOILET:
 		return "E 撤了"
+	if emp_state == Rules.EmpState.TRADE:
+		if trade_holding:
+			return "F 卖出    E 撤了（%.0fs）" % ceilf(trade_left)
+		return "F 买入    E 撤了（%.0fs）" % ceilf(trade_left)
 	if emp_state == Rules.EmpState.CLOCKING:
 		return "润了 · 去打卡"
 	if emp_state == Rules.EmpState.MEETING:
@@ -157,13 +201,24 @@ func nearby_action() -> String:
 		var who: int = map.occupiers.get(seat, -1)
 		if who != -1 and who != slot:
 			return "这个位子有人"
-		return "E 坐下干活"
+		return "E 坐下 · 还要再按一次才开工"
+	var loot := map.nearest_energy(global_position, Rules.INTERACT_RANGE)
+	if loot != "":
+		return map.energy_prompt(loot)
 	var coffee := map.nearest_free("coffee", global_position)
 	if coffee != "" and global_position.distance_to(map.points[coffee]) < Rules.INTERACT_RANGE:
-		return "E 续命（咖啡）"
+		return "E 手冲咖啡（卡点出杯）"
 	var toilet := map.nearest_free("toilet", global_position)
 	if toilet != "" and global_position.distance_to(map.points[toilet]) < Rules.INTERACT_RANGE:
-		return "E 暂时离线"
+		return "E 躲进隔间缓一缓"
+	var stock := map.nearest_spot("stock", global_position, Rules.INTERACT_RANGE)
+	if stock != "":
+		var who: int = map.occupiers.get(stock, -1)
+		if who != -1 and who != slot:
+			return "有人在盘中"
+		if trade_cd > 0.05:
+			return "内网交易冷却 %.0fs" % ceilf(trade_cd)
+		return "E 炒股 · 赚了加精力"
 	if skin == Rules.CharSkin.KANGAROO and emp_state == Rules.EmpState.WALK and stand_lock <= 0.0:
 		if bike_left > 0.0:
 			return "电瓶车 · 还剩 %.0fs" % ceilf(bike_left)
@@ -223,6 +278,13 @@ func _ensure_sprite() -> void:
 	scarf_sprite.z_index = 2
 	scarf_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	add_child(scarf_sprite)
+	bowl_sprite = Sprite2D.new()
+	bowl_sprite.name = "ToiletBowl"
+	bowl_sprite.centered = false
+	bowl_sprite.z_index = 0
+	bowl_sprite.visible = false
+	bowl_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	add_child(bowl_sprite)
 	_apply_scarf()
 	if skin == Rules.CharSkin.PELICAN:
 		carry_visual = preload("res://src/fx/PelicanCarry.gd").new()
@@ -288,10 +350,13 @@ func _apply_scarf() -> void:
 			scarf_sprite.visible = false
 		return
 	if Kit.has_scarf_layer(skin):
-		var body_mat := ShaderMaterial.new()
-		body_mat.shader = BODY_SHADER
-		body_mat.set_shader_parameter("body_color", Rules.body_color(skin))
-		body_sprite.material = body_mat
+		if Rules.BODY_FOR_SKIN.has(skin):
+			var body_mat := ShaderMaterial.new()
+			body_mat.shader = BODY_SHADER
+			body_mat.set_shader_parameter("body_color", Rules.body_color(skin))
+			body_sprite.material = body_mat
+		else:
+			body_sprite.material = null
 		return
 	var mat := ShaderMaterial.new()
 	mat.shader = SCARF_SHADER
@@ -302,7 +367,7 @@ func _apply_scarf() -> void:
 func _sync_scarf(pose: String) -> void:
 	if scarf_sprite == null:
 		return
-	if kind != Rules.Kind.EMPLOYEE or not Kit.has_scarf_layer(skin):
+	if kind != Rules.Kind.EMPLOYEE or not Kit.has_scarf_layer(skin) or pose.begins_with("trade"):
 		scarf_sprite.visible = false
 		return
 	var tex: Texture2D = Kit.scarf_tex(skin, pose)
@@ -319,6 +384,24 @@ func _sync_scarf(pose: String) -> void:
 	var tint := Rules.scarf_color(skin)
 	var threat := body_sprite.modulate
 	scarf_sprite.modulate = Color(tint.r * threat.r, tint.g * threat.g, tint.b * threat.b, 1.0)
+
+
+func _sync_bowl() -> void:
+	if bowl_sprite == null or body_sprite == null:
+		return
+	var sitting := emp_state == Rules.EmpState.TOILET and carried_by < 0
+	var tex: Texture2D = Kit.bowl_tex(skin) if sitting else null
+	if tex == null or not body_sprite.visible:
+		bowl_sprite.visible = false
+		return
+	bowl_sprite.visible = true
+	bowl_sprite.texture = tex
+	bowl_sprite.position = body_sprite.position
+	bowl_sprite.offset = body_sprite.offset
+	bowl_sprite.scale = body_sprite.scale
+	bowl_sprite.rotation = body_sprite.rotation
+	bowl_sprite.flip_h = body_sprite.flip_h
+	bowl_sprite.modulate = body_sprite.modulate
 
 
 func _make_chip(color: Color) -> Label:
@@ -340,7 +423,7 @@ func _update_visual(delta := 0.0) -> void:
 		_facing.x = 1.0
 	elif velocity.x < -10.0:
 		_facing.x = -1.0
-	var sitting := emp_state == Rules.EmpState.WORK or emp_state == Rules.EmpState.SLACK or emp_state == Rules.EmpState.COFFEE or emp_state == Rules.EmpState.TOILET or emp_state == Rules.EmpState.MEETING
+	var sitting := emp_state == Rules.EmpState.WORK or emp_state == Rules.EmpState.SLACK or emp_state == Rules.EmpState.COFFEE or emp_state == Rules.EmpState.TOILET or emp_state == Rules.EmpState.MEETING or emp_state == Rules.EmpState.TRADE
 	var pose := _anim_pose()
 	var tex: Texture2D = Kit.tex(skin, pose)
 	if tex != null:
@@ -368,7 +451,11 @@ func _update_visual(delta := 0.0) -> void:
 		body_sprite.position.y = sin(_anim_acc * 12.0) * 1.5
 	body_sprite.visible = carried_by < 0
 	body_sprite.offset = Vector2(-sz.x * 0.5, -sz.y + Ride.FOOT_PAD)
-	body_sprite.flip_h = (not sitting) and _facing.x < 0.0
+	if emp_state == Rules.EmpState.TRADE:
+		_facing = Vector2.RIGHT
+		body_sprite.flip_h = false
+	else:
+		body_sprite.flip_h = (not sitting) and _facing.x < 0.0
 	_update_bike_visual(_is_riding(), walk_sc)
 	if zzz_label:
 		if emp_state == Rules.EmpState.TALK:
@@ -379,6 +466,10 @@ func _update_visual(delta := 0.0) -> void:
 			zzz_label.visible = true
 			zzz_label.text = "润"
 			zzz_label.add_theme_color_override("font_color", Color(0.45, 0.82, 0.42))
+		elif emp_state == Rules.EmpState.TRADE:
+			zzz_label.visible = true
+			zzz_label.text = "盘中"
+			zzz_label.add_theme_color_override("font_color", Color(0.98, 0.72, 0.22))
 		else:
 			zzz_label.visible = false
 			zzz_label.text = "z z"
@@ -390,6 +481,7 @@ func _update_visual(delta := 0.0) -> void:
 	_update_hold()
 	_update_threat_modulate()
 	_sync_scarf(pose)
+	_sync_bowl()
 	if carried_by >= 0:
 		name_label.visible = false
 		zzz_label.visible = false
@@ -413,6 +505,8 @@ func _anim_pose() -> String:
 			anim = "idle"
 		Rules.EmpState.TOILET:
 			anim = "toilet"
+		Rules.EmpState.TRADE:
+			anim = "trade"
 		Rules.EmpState.CLOCKING:
 			anim = "ride" if _is_riding() else "run"
 		_:
@@ -424,6 +518,8 @@ func _anim_pose() -> String:
 				anim = "idle"
 	var frames: PackedStringArray = Kit.loop_frames(anim)
 	var fps := 10.0 if anim == "run" else (8.0 if anim == "walk" else 5.0)
+	if dash_left > 0.0 and anim == "run":
+		fps = 16.0
 	if anim == "sleep":
 		fps = 4.0
 	var i: int = int(_anim_acc * fps) % frames.size()
@@ -515,8 +611,26 @@ func _update_hold() -> void:
 		hold_sprite.position = Vector2(16, -8)
 		hold_sprite.scale = Vector2(0.03, 0.03)
 		hold_sprite.modulate = Color.WHITE
+	elif throw_flash > 0.0:
+		var hand := throw_hand_offset()
+		hold_sprite.texture = WEEKLY_TEX
+		hold_sprite.region_enabled = false
+		hold_sprite.visible = true
+		hold_sprite.position = hand
+		hold_sprite.scale = Vector2(0.022, 0.022)
+		hold_sprite.rotation = 0.18 * (1.0 if hand.x >= 0.0 else -1.0)
+		hold_sprite.modulate = Color(1, 1, 1, clampf(throw_flash / 0.16, 0.0, 1.0))
+	elif slow_left > 0.0:
+		hold_sprite.texture = WEEKLY_TEX
+		hold_sprite.region_enabled = false
+		hold_sprite.visible = true
+		hold_sprite.position = Vector2(16, -36)
+		hold_sprite.scale = Vector2(0.024, 0.024)
+		hold_sprite.rotation = 0.35
+		hold_sprite.modulate = Color(1, 1, 1, 0.95)
 	else:
 		hold_sprite.visible = false
+		hold_sprite.rotation = 0.0
 
 
 func _update_threat_modulate() -> void:
@@ -536,6 +650,8 @@ func _update_threat_modulate() -> void:
 			c = Color.WHITE.lerp(Color(0.90, 0.70, 0.68), clampf(threat, 0.0, 1.0))
 		if boost_left > 0.0:
 			c = c.lerp(Color(0.75, 1.0, 0.82), 0.4)
+		if slow_left > 0.0:
+			c = c.lerp(Color(0.86, 0.78, 0.62), 0.55)
 	elif kpi_flash > 0.0:
 		c = Color(1.0, 0.55, 0.5)
 	body_sprite.modulate = c
@@ -577,11 +693,20 @@ func _server_tick(delta: float) -> void:
 	catch_chain = max(0.0, catch_chain - delta)
 	coffee_buff = max(0.0, coffee_buff - delta)
 	boost_left = max(0.0, boost_left - delta)
+	slow_left = max(0.0, slow_left - delta)
+	_slow_flash = max(0.0, _slow_flash - delta)
 	meeting_cd = max(0.0, meeting_cd - delta)
 	kpi_cd = max(0.0, kpi_cd - delta)
 	dash_cd = max(0.0, dash_cd - delta)
 	dash_left = max(0.0, dash_left - delta)
+	report_cd = max(0.0, report_cd - delta)
+	fan_cd = max(0.0, fan_cd - delta)
+	throw_flash = max(0.0, throw_flash - delta)
 	kpi_flash = max(0.0, kpi_flash - delta)
+	play_lock = max(0.0, play_lock - delta)
+	if kind == Rules.Kind.EMPLOYEE:
+		_tick_cells(delta)
+	trade_cd = max(0.0, trade_cd - delta)
 	if kind == Rules.Kind.BOSS:
 		_boss_tick(delta)
 	else:
@@ -591,6 +716,8 @@ func _server_tick(delta: float) -> void:
 	want_meeting = false
 	want_kpi = false
 	want_dash = false
+	want_report = false
+	want_fan = false
 
 
 func _employee_tick(delta: float) -> void:
@@ -611,22 +738,33 @@ func _employee_tick(delta: float) -> void:
 			Match.release_carry(self)
 			want_interact = false
 		else:
-			velocity = input_dir.limit_length() * Rules.EMPLOYEE_SPEED * 0.88 if carry_windup <= 0.0 else Vector2.ZERO
+			_try_start_emp_dash()
+			if dash_left > 0.0:
+				velocity = dash_dir * _slowed(Rules.EMP_DASH_SPEED)
+			else:
+				velocity = input_dir.limit_length() * _slowed(Rules.EMPLOYEE_SPEED * 0.88) if carry_windup <= 0.0 else Vector2.ZERO
 			move_and_slide()
+			if velocity.length() > 8.0:
+				_facing = velocity.normalized()
 			return
 	if emp_state == Rules.EmpState.LEFT:
 		visible = false
 		velocity = Vector2.ZERO
 		return
-	if hours <= 0.0 and emp_state != Rules.EmpState.CLOCKING and emp_state != Rules.EmpState.TALK:
+	if hours <= 0.0 and emp_state != Rules.EmpState.CLOCKING and emp_state != Rules.EmpState.TALK and emp_state != Rules.EmpState.TRADE:
 		_begin_clocking()
+	if play_kind != "" and emp_state != Rules.EmpState.TALK and emp_state != Rules.EmpState.MEETING and emp_state != Rules.EmpState.CARRIED:
+		_tick_energy_play(delta)
+		return
 	match emp_state:
 		Rules.EmpState.TALK:
 			_tick_talk(delta)
 			return
+		Rules.EmpState.TRADE:
+			_tick_trade(delta)
+			return
 		Rules.EmpState.MEETING:
 			meeting_left -= delta
-			energy = max(0.0, energy - Rules.MEETING_ENERGY_PER_SEC * delta)
 			velocity = Vector2.ZERO
 			if meeting_left <= 0.0:
 				emp_state = Rules.EmpState.WALK
@@ -636,24 +774,34 @@ func _employee_tick(delta: float) -> void:
 			var blocked = office().nearest_door(global_position, 56.0)
 			if blocked != null and blocked.closed:
 				office().try_door(self)
-			var clock_speed := Rules.EMPLOYEE_SPEED * (Rules.BIKE_SPEED_MUL if bike_left > 0.0 else 1.0)
+			_try_start_emp_dash()
+			var clock_speed := _slowed(Rules.EMPLOYEE_SPEED * (Rules.BIKE_SPEED_MUL if bike_left > 0.0 else 1.0))
+			if dash_left > 0.0:
+				clock_speed = _slowed(Rules.EMP_DASH_SPEED)
 			_move_towards(office().path_to(global_position, target), clock_speed, delta)
 			if global_position.distance_to(target) < Rules.CLOCK_RANGE:
 				_clock_out()
 			return
 		Rules.EmpState.WORK:
-			if want_slack:
+			if want_slack and not tasking:
 				emp_state = Rules.EmpState.SLACK
 				_sit_work(delta, true)
 				return
-			if want_interact or input_dir.length() > 0.12:
+			if input_dir.length() > 0.12:
+				_abort_task("中途离席，这单废了")
 				_stand_up()
-				if want_interact:
-					Match.try_rescue(self)
-					return
-			else:
-				_sit_work(delta, false)
 				return
+			if want_interact:
+				if tasking:
+					_abort_task("自己撤了，这单废了")
+					_stand_up()
+				elif energy_cells >= 1:
+					_start_task()
+				else:
+					say("没精力 · 先去找咖啡", 1.2)
+				return
+			_sit_work(delta, false)
+			return
 		Rules.EmpState.SLACK:
 			if want_slack:
 				emp_state = Rules.EmpState.WORK
@@ -668,20 +816,11 @@ func _employee_tick(delta: float) -> void:
 				_sit_work(delta, true)
 				return
 		Rules.EmpState.COFFEE:
-			energy = min(Rules.ENERGY_MAX, energy + Rules.COFFEE_ENERGY_PER_SEC * delta)
-			velocity = Vector2.ZERO
-			if energy >= Rules.ENERGY_MAX - 0.2 or want_interact or input_dir.length() > 0.12:
-				coffee_buff = Rules.COFFEE_BUFF_TIME
-				_stand_up()
-			else:
-				return
+			_tick_energy_play(delta)
+			return
 		Rules.EmpState.TOILET:
-			energy = min(Rules.ENERGY_MAX, energy + Rules.TOILET_ENERGY_PER_SEC * delta)
-			velocity = Vector2.ZERO
-			if energy >= Rules.ENERGY_MAX - 0.2 or want_interact or input_dir.length() > 0.12:
-				_stand_up()
-			else:
-				return
+			_tick_energy_play(delta)
+			return
 	# walk
 	if rescue_left > 0.0:
 		if input_dir.length() > 0.12:
@@ -689,12 +828,17 @@ func _employee_tick(delta: float) -> void:
 		elif Match.tick_rescue(self, delta):
 			velocity = Vector2.ZERO
 			return
+	if _try_start_emp_dash():
+		clear_rescue()
 	var speed := Rules.EMPLOYEE_SPEED
 	if boost_left > 0.0:
 		speed *= Rules.RESCUE_BOOST_MUL
 	if bike_left > 0.0:
 		speed *= Rules.BIKE_SPEED_MUL
-	if is_bot():
+	speed = _slowed(speed)
+	if dash_left > 0.0:
+		velocity = dash_dir * _slowed(Rules.EMP_DASH_SPEED)
+	elif is_bot():
 		velocity = input_dir.normalized() * speed if input_dir.length() > 0.1 else Vector2.ZERO
 	else:
 		velocity = input_dir.limit_length(1.0) * speed
@@ -709,7 +853,6 @@ func _sit_work(delta: float, slack: bool) -> void:
 	velocity = Vector2.ZERO
 	var supervised := Match.is_supervised(self)
 	if slack:
-		energy = min(Rules.ENERGY_MAX, energy + Rules.SLACK_ENERGY_PER_SEC * delta)
 		if supervised:
 			slack_seen += delta
 			if slack_seen >= Rules.SLACK_CATCH_DELAY:
@@ -717,16 +860,23 @@ func _sit_work(delta: float, slack: bool) -> void:
 		else:
 			slack_seen = 0.0
 		return
+	if not tasking:
+		return
 	var mul := 1.0
 	if coffee_buff > 0.0:
 		mul *= Rules.COFFEE_BUFF_MUL
 	if supervised:
 		mul *= Rules.TIGER_SUPERVISE_MUL
-	if energy <= 0.0:
-		hours = max(0.0, hours - Rules.EMPTY_HOURS_PER_SEC * delta)
-	else:
-		hours = max(0.0, hours - Rules.WORK_HOURS_PER_SEC * mul * delta)
-		energy = max(0.0, energy - Rules.WORK_ENERGY_PER_SEC * delta)
+	task_progress = minf(1.0, task_progress + delta * mul / Rules.TASK_TIME)
+	_refresh_legacy()
+	if task_progress >= 1.0:
+		tasking = false
+		task_progress = 0.0
+		tasks_done = mini(tasks_done + 1, Rules.TASK_COUNT)
+		say("「%s」交了" % Rules.task_name(tasks_done - 1), 1.1)
+		_refresh_legacy()
+		if tasks_done >= Rules.TASK_COUNT:
+			_begin_clocking()
 
 
 func _try_employee_interact() -> void:
@@ -755,6 +905,7 @@ func _try_employee_interact() -> void:
 			occupy_id = coffee
 			emp_state = Rules.EmpState.COFFEE
 			global_position = map.points[coffee]
+			_begin_play("brew")
 		return
 	var toilet := map.nearest_free("toilet", global_position)
 	if toilet != "" and global_position.distance_to(map.points[toilet]) < Rules.INTERACT_RANGE:
@@ -763,18 +914,342 @@ func _try_employee_interact() -> void:
 			occupy_id = toilet
 			emp_state = Rules.EmpState.TOILET
 			global_position = map.points[toilet]
+			_begin_play("flush")
+		return
+	var loot := map.nearest_energy(global_position, Rules.INTERACT_RANGE)
+	if loot != "":
+		if map.take_energy(loot, slot):
+			_dismount_bike()
+			occupy_id = loot
+			emp_state = Rules.EmpState.WALK
+			global_position = map.energy_pos(loot)
+			_begin_play(map.energy_kind(loot), loot)
+		return
+	var stock := map.nearest_spot("stock", global_position, Rules.INTERACT_RANGE)
+	if stock != "":
+		if trade_cd > 0.05:
+			return
+		if map.take_spot(stock, slot):
+			_begin_trade(stock)
 		return
 	Match.try_bike(self)
 
 
 func _stand_up() -> void:
-	office().free_spot(occupy_id, slot)
+	if emp_state == Rules.EmpState.TRADE and not _trade_settling:
+		_reset_trade()
+	_abort_task("")
+	_cancel_play()
+	var map := office()
+	if map:
+		map.free_spot(occupy_id, slot)
+		map.free_energy(occupy_id, slot)
 	occupy_id = ""
 	emp_state = Rules.EmpState.WALK
 	slack_seen = 0.0
 
 
+func _refresh_legacy() -> void:
+	var left := float(Rules.TASK_COUNT - tasks_done) - task_progress
+	hours = maxf(0.0, left * (Rules.HOURS_START / float(Rules.TASK_COUNT)))
+	energy = (float(energy_cells) + energy_charge) * (Rules.ENERGY_MAX / float(Rules.ENERGY_CELLS))
+
+
+func _tick_cells(delta: float) -> void:
+	if emp_state == Rules.EmpState.LEFT or emp_state == Rules.EmpState.CLOCKING:
+		_refresh_legacy()
+		return
+	if energy_cells >= Rules.ENERGY_CELLS:
+		energy_charge = 0.0
+		_refresh_legacy()
+		return
+	if tasking or play_kind != "" or emp_state == Rules.EmpState.MEETING or emp_state == Rules.EmpState.TALK:
+		_refresh_legacy()
+		return
+	var sec := Rules.ENERGY_CHARGE_SEC
+	if emp_state == Rules.EmpState.SLACK:
+		sec = Rules.ENERGY_SLACK_SEC
+	energy_charge = minf(1.0, energy_charge + delta / sec)
+	if energy_charge >= 1.0:
+		energy_cells += 1
+		energy_charge = 0.0
+		say("回了一格精力", 0.9)
+	_refresh_legacy()
+
+
+func _start_task() -> void:
+	if tasking or energy_cells < 1 or tasks_done >= Rules.TASK_COUNT:
+		return
+	energy_cells -= 1
+	tasking = true
+	task_progress = 0.0
+	emp_state = Rules.EmpState.WORK
+	say("开工「%s」" % Rules.task_name(tasks_done), 1.1)
+	_refresh_legacy()
+
+
+func _abort_task(msg: String) -> void:
+	if not tasking:
+		return
+	tasking = false
+	task_progress = 0.0
+	if msg != "":
+		say(msg, 1.2)
+	_refresh_legacy()
+
+
+func _add_energy(n: int, msg: String) -> void:
+	if n <= 0:
+		if msg != "":
+			say(msg, 1.0)
+		return
+	energy_cells = mini(Rules.ENERGY_CELLS, energy_cells + n)
+	if energy_cells >= Rules.ENERGY_CELLS:
+		energy_charge = 0.0
+	if msg != "":
+		say(msg, 1.1)
+	_refresh_legacy()
+
+
+func lose_task() -> void:
+	_abort_task("被加塞，这单废了")
+	if tasks_done > 0:
+		tasks_done -= 1
+		say("KPI 又多了一单", 1.2)
+	_refresh_legacy()
+
+
+func _begin_play(kind: String, loot := "") -> void:
+	play_kind = kind
+	play_t = 0.0
+	play_hits = 0
+	play_lock = 0.0
+	play_msg = ""
+	play_mark = randf_range(0.28, 0.62)
+	if loot != "":
+		occupy_id = loot
+	if kind == "snack":
+		play_msg = "连按拆开"
+	elif kind == "water":
+		play_msg = "接到刚好满"
+
+
+func _cancel_play() -> void:
+	play_kind = ""
+	play_t = 0.0
+	play_hits = 0
+	play_msg = ""
+	play_lock = 0.0
+
+
+func _tick_energy_play(delta: float) -> void:
+	velocity = Vector2.ZERO
+	if play_kind == "":
+		return
+	if want_interact or input_dir.length() > 0.12:
+		_stand_up()
+		return
+	if is_bot() and play_lock <= 0.0 and randf() < 0.025:
+		want_slack = true
+	match play_kind:
+		"brew", "flush", "vend", "rummage":
+			play_t = 0.5 + 0.5 * sin(Time.get_ticks_msec() * (0.006 if play_kind == "flush" else 0.009) + float(slot))
+			if play_kind == "vend":
+				play_t = pingpong(Time.get_ticks_msec() * 0.0022 + float(slot), 1.0)
+			if play_kind == "rummage":
+				play_t = pingpong(Time.get_ticks_msec() * 0.0034 + float(slot) * 1.7, 1.0)
+			if want_slack and play_lock <= 0.0:
+				_resolve_timing()
+		"snack":
+			if want_slack:
+				play_hits += 1
+				play_msg = "撕包装  %d/5" % play_hits
+				if play_hits >= 5:
+					_finish_play(1, "垫了一口过期的")
+		"water":
+			play_t = pingpong(Time.get_ticks_msec() * 0.0018 + float(slot), 1.0)
+			if want_slack and play_lock <= 0.0:
+				_resolve_timing()
+	if Match.is_supervised(self) and (emp_state == Rules.EmpState.COFFEE or emp_state == Rules.EmpState.TOILET):
+		slack_seen += delta
+		if slack_seen >= Rules.SLACK_CATCH_DELAY + 0.4:
+			Match.catch_employee(self)
+
+
+func _resolve_timing() -> void:
+	play_lock = 0.45
+	var hit := absf(play_t - play_mark)
+	var gain := 0
+	var msg := "空了"
+	if play_kind == "brew":
+		if hit < 0.06:
+			gain = 2
+			msg = "出杯完美 · 精力 +2"
+			coffee_buff = Rules.COFFEE_BUFF_TIME
+		elif hit < 0.12:
+			gain = 1
+			msg = "能喝 · 精力 +1"
+		else:
+			msg = "洒了 · 再来"
+	elif play_kind == "flush":
+		if hit < 0.10:
+			gain = 2
+			msg = "缓过来了 · 精力 +2"
+		elif hit < 0.18:
+			gain = 1
+			msg = "还行 · 精力 +1"
+		else:
+			msg = "没缓住"
+	elif play_kind == "vend":
+		if play_t < 0.34:
+			gain = 2
+			msg = "功能饮料 · 精力 +2"
+		elif play_t < 0.72:
+			gain = 1
+			msg = "难喝的罐装咖啡 · +1"
+		else:
+			msg = "过期矿泉水 · 0"
+	elif play_kind == "rummage":
+		if hit < 0.12:
+			gain = 1
+			msg = "摸到巧克力 · +1"
+		else:
+			msg = "一抽屉订书钉"
+	elif play_kind == "water":
+		if play_t > 0.62 and play_t < 0.88:
+			gain = 1
+			msg = "接得刚好 · +1"
+		elif play_t >= 0.88:
+			msg = "满溢 · 鞋湿了"
+		else:
+			msg = "就几滴"
+	play_msg = msg
+	if gain > 0:
+		_finish_play(gain, msg)
+	else:
+		say(msg, 0.8)
+
+
+func _finish_play(gain: int, msg: String) -> void:
+	var kind := play_kind
+	var loot := occupy_id
+	_add_energy(gain, msg)
+	var map := office()
+	if map and (kind == "snack" or kind == "rummage"):
+		map.consume_energy(loot)
+	_cancel_play()
+	if map:
+		map.free_spot(loot, slot)
+		map.free_energy(loot, slot)
+	occupy_id = ""
+	emp_state = Rules.EmpState.WALK
+	if kind == "brew":
+		coffee_buff = Rules.COFFEE_BUFF_TIME
+
+
+func trade_value() -> float:
+	return trade_cash + trade_shares * trade_price
+
+
+func apply_trade(left: float, price: float, cash: float, shares: float, holding: bool, hist: PackedFloat32Array) -> void:
+	trade_left = left
+	trade_price = price
+	trade_cash = cash
+	trade_shares = shares
+	trade_holding = holding
+	trade_history = hist
+
+
+func _begin_trade(spot: String) -> void:
+	_dismount_bike()
+	occupy_id = spot
+	emp_state = Rules.EmpState.TRADE
+	global_position = office().points[spot]
+	_facing = Vector2.RIGHT
+	trade_left = Rules.STOCK_TIME
+	trade_price = Rules.STOCK_START
+	trade_cash = Rules.STOCK_START
+	trade_shares = 0.0
+	trade_holding = false
+	trade_tick = 0.0
+	trade_history = PackedFloat32Array([Rules.STOCK_START])
+	Match.sync_trade.rpc(slot, trade_left, trade_price, trade_cash, trade_shares, trade_holding, trade_history)
+
+
+func _tick_trade(delta: float) -> void:
+	velocity = Vector2.ZERO
+	_facing = Vector2.RIGHT
+	trade_left = maxf(0.0, trade_left - delta)
+	trade_tick += delta
+	if trade_tick >= Rules.STOCK_TICK:
+		trade_tick = 0.0
+		var step := randf_range(-1.15, 1.15)
+		step = signf(step) * (0.35 + absf(step) * 3.4)
+		if randf() < 0.10:
+			step *= 2.2
+		trade_price = clampf(trade_price + step, 48.0, 168.0)
+		trade_history.append(trade_price)
+		if trade_history.size() > 96:
+			trade_history.remove_at(0)
+		Match.sync_trade.rpc(slot, trade_left, trade_price, trade_cash, trade_shares, trade_holding, trade_history)
+	if want_slack:
+		_toggle_trade()
+	if want_interact or trade_left <= 0.0:
+		_finish_trade()
+
+
+func _toggle_trade() -> void:
+	if trade_holding:
+		trade_cash = trade_shares * trade_price
+		trade_shares = 0.0
+		trade_holding = false
+	else:
+		if trade_cash < 0.01:
+			return
+		trade_shares = trade_cash / maxf(trade_price, 0.01)
+		trade_cash = 0.0
+		trade_holding = true
+	Match.sync_trade.rpc(slot, trade_left, trade_price, trade_cash, trade_shares, trade_holding, trade_history)
+
+
+func _finish_trade() -> void:
+	if trade_holding:
+		trade_cash = trade_shares * trade_price
+		trade_shares = 0.0
+		trade_holding = false
+	var pnl := trade_cash - Rules.STOCK_START
+	_trade_settling = true
+	var won := pnl > Rules.STOCK_WIN
+	_reset_trade()
+	_stand_up()
+	_trade_settling = false
+	trade_cd = Rules.STOCK_CD
+	if won:
+		_add_energy(Rules.STOCK_ENERGY_GAIN, "持股计划 %+0.0f · 精力 +%d" % [pnl, Rules.STOCK_ENERGY_GAIN])
+		coffee_buff = maxf(coffee_buff, Rules.COFFEE_BUFF_TIME)
+		Match.apply_stock_boost(slot, pnl)
+	elif pnl < -Rules.STOCK_WIN:
+		Match.notify_stock.rpc(slot, pnl, 0.0, false)
+		say("亏了，精力还在", 1.2)
+	else:
+		Match.notify_stock.rpc(slot, pnl, 0.0, false)
+		say("平盘", 1.1)
+
+
+func _reset_trade() -> void:
+	trade_left = 0.0
+	trade_shares = 0.0
+	trade_holding = false
+	trade_tick = 0.0
+	trade_history = PackedFloat32Array()
+	trade_price = Rules.STOCK_START
+	trade_cash = Rules.STOCK_START
+
+
 func _begin_clocking() -> void:
+	tasks_done = Rules.TASK_COUNT
+	tasking = false
+	task_progress = 0.0
 	_stand_up()
 	hours = 0.0
 	emp_state = Rules.EmpState.CLOCKING
@@ -821,13 +1296,15 @@ func apply_catch(repeat: bool, extra_stun: float) -> void:
 		return
 	_dismount_bike()
 	_stand_up()
-	hours += Rules.CATCH_HOURS_REPEAT if repeat else Rules.CATCH_HOURS_FIRST
+	if repeat and tasks_done > 0:
+		tasks_done -= 1
 	stand_lock = Rules.CATCH_STAND_LOCK + extra_stun
 	catch_chain = Rules.CATCH_CHAIN_WINDOW
 	slack_seen = 0.0
 	talk_progress = 0.0
 	rescue_left = 0.0
 	rescue_slot = -1
+	_refresh_legacy()
 
 
 func send_to_meeting(seconds: float, meeting_pos: Vector2) -> void:
@@ -843,14 +1320,85 @@ func send_to_meeting(seconds: float, meeting_pos: Vector2) -> void:
 	global_position = meeting_pos
 
 
+func facing_dir() -> Vector2:
+	if input_dir.length() > 0.12:
+		return input_dir.normalized()
+	if _facing.length() > 0.12:
+		return _facing.normalized()
+	return Vector2.DOWN
+
+
+func throw_hand_offset() -> Vector2:
+	var face := facing_dir()
+	var side := 1.0 if _facing.x >= 0.0 else -1.0
+	if absf(face.x) >= 0.25:
+		side = signf(face.x)
+	return Vector2(side * 22.0, -50.0)
+
+
+func throw_origin() -> Vector2:
+	var face := facing_dir()
+	return global_position + Vector2(throw_hand_offset().x, 0.0) + face * 10.0
+
+
+func _slowed(speed: float) -> float:
+	if slow_left > 0.0:
+		return speed * Rules.REPORT_SLOW_MUL
+	return speed
+
+
+func apply_report_hit() -> bool:
+	if kind != Rules.Kind.EMPLOYEE:
+		return false
+	if emp_state in [Rules.EmpState.LEFT, Rules.EmpState.TALK, Rules.EmpState.MEETING, Rules.EmpState.CARRIED]:
+		return false
+	slow_left = Rules.REPORT_SLOW_TIME
+	_slow_flash = 0.55
+	if energy_charge > 0.12:
+		energy_charge = 0.0
+	elif energy_cells > 0:
+		energy_cells -= 1
+	_refresh_legacy()
+	say("请查收", 1.25)
+	return true
+
+
+func _emp_can_dash() -> bool:
+	if bike_left > 0.0 or carried_by >= 0 or stand_lock > 0.0:
+		return false
+	if carry_windup > 0.0:
+		return false
+	return emp_state == Rules.EmpState.WALK or emp_state == Rules.EmpState.CLOCKING
+
+
+func _try_start_emp_dash() -> bool:
+	if not want_dash or not _emp_can_dash():
+		return false
+	return _start_dash(Rules.EMP_DASH_CD, Rules.EMP_DASH_TIME)
+
+
+func _start_dash(cd: float, dur: float) -> bool:
+	if dash_cd > 0.0 or dash_left > 0.0:
+		return false
+	var d := input_dir
+	if d.length() < 0.12:
+		d = _facing
+	if d.length() < 0.12:
+		return false
+	dash_dir = d.normalized()
+	dash_left = dur
+	dash_cd = cd
+	return true
+
+
 func _boss_tick(delta: float) -> void:
+	if want_dash:
+		_start_dash(Rules.TIGER_DASH_CD, Rules.TIGER_DASH_TIME)
 	var speed := Rules.BOSS_BASE_SPEED * Rules.TIGER_SPEED_MUL
 	if dash_left > 0.0:
-		speed = Rules.TIGER_DASH_SPEED
-	if want_dash and dash_cd <= 0.0:
-		dash_left = Rules.TIGER_DASH_TIME
-		dash_cd = Rules.TIGER_DASH_CD
-	velocity = input_dir.limit_length(1.0) * speed
+		velocity = dash_dir * Rules.TIGER_DASH_SPEED
+	else:
+		velocity = input_dir.limit_length(1.0) * speed
 	move_and_slide()
 	if velocity.length() > 8.0:
 		_facing = velocity.normalized()
@@ -868,6 +1416,14 @@ func _boss_tick(delta: float) -> void:
 		Match.cast_kpi()
 		kpi_cd = Rules.KPI_CD
 		kpi_flash = 1.6
+	if want_report and report_cd <= 0.0:
+		if Match.try_throw_reports(self, false):
+			report_cd = Rules.REPORT_CD
+			throw_flash = 0.16
+	if want_fan and fan_cd <= 0.0:
+		if Match.try_throw_reports(self, true):
+			fan_cd = Rules.REPORT_FAN_CD
+			throw_flash = 0.16
 
 
 func _move_towards(target: Vector2, speed: float, delta: float) -> void:
@@ -880,7 +1436,7 @@ func _move_towards(target: Vector2, speed: float, delta: float) -> void:
 	_facing = velocity.normalized()
 
 
-func apply_input(x: float, y: float, interact: bool, slack: bool, meeting: bool, kpi: bool, dash: bool) -> void:
+func apply_input(x: float, y: float, interact: bool, slack: bool, meeting: bool, kpi: bool, dash: bool, report := false, fan := false) -> void:
 	input_dir = Vector2(x, y)
 	if interact:
 		want_interact = true
@@ -892,18 +1448,22 @@ func apply_input(x: float, y: float, interact: bool, slack: bool, meeting: bool,
 		want_kpi = true
 	if dash:
 		want_dash = true
+	if report:
+		want_report = true
+	if fan:
+		want_fan = true
 
 
 @rpc("any_peer", "unreliable")
-func recv_input(x: float, y: float, interact: bool, slack: bool, meeting: bool, kpi: bool, dash: bool) -> void:
+func recv_input(x: float, y: float, interact: bool, slack: bool, meeting: bool, kpi: bool, dash: bool, report := false, fan := false) -> void:
 	if not multiplayer.is_server():
 		return
 	if multiplayer.get_remote_sender_id() != peer_id:
 		return
-	apply_input(x, y, interact, slack, meeting, kpi, dash)
+	apply_input(x, y, interact, slack, meeting, kpi, dash, report, fan)
 
 
-func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0) -> void:
+func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0, slow: float = 0.0, rcd: float = 0.0, fcd: float = 0.0) -> void:
 	_remote_pos = Vector2(px, py)
 	emp_state = st
 	hours = h
@@ -915,12 +1475,18 @@ func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool
 	talk_progress = talk
 	rescue_left = rescue
 	bike_left = bike
+	slow_left = slow
+	report_cd = rcd
+	fan_cd = fcd
 	if name_label:
 		name_label.text = display_name
 
 
 func _broadcast_state() -> void:
-	Match.sync_actor.rpc(slot, global_position.x, global_position.y, emp_state, hours, energy, visible, meeting_cd, kpi_cd, dash_cd, occupy_id, talk_progress, rescue_left, bike_left)
+	Match.sync_actor.rpc(slot, global_position.x, global_position.y, emp_state, hours, energy, visible, meeting_cd, kpi_cd, dash_cd, occupy_id, talk_progress, rescue_left, bike_left, slow_left, report_cd, fan_cd)
+	Match.sync_cells.rpc(slot, tasks_done, task_progress, energy_cells, energy_charge, play_kind, play_t, play_mark, play_hits, play_msg, 1 if tasking else 0, occupy_id)
+	if emp_state == Rules.EmpState.TRADE:
+		Match.sync_trade.rpc(slot, trade_left, trade_price, trade_cash, trade_shares, trade_holding, trade_history)
 
 
 func _show_resource_bars() -> bool:
@@ -945,14 +1511,20 @@ func _draw() -> void:
 		var a := 0.35 if rescue_left > 0.0 else 0.22
 		draw_line(Vector2(-28, -8), Vector2(-8, -20), Color(1, 1, 0.7, a), 2.0)
 		draw_line(Vector2(-24, 6), Vector2(-4, -4), Color(1, 1, 0.7, a), 2.0)
+	if kind == Rules.Kind.EMPLOYEE and slow_left > 0.0:
+		var t := Time.get_ticks_msec() * 0.006
+		var ring := 0.55 + 0.45 * (slow_left / Rules.REPORT_SLOW_TIME)
+		draw_arc(Vector2(0, -10), 22.0 + sin(t) * 2.0, 0, TAU, 24, Color(0.72, 0.55, 0.22, 0.28 + 0.22 * ring), 2.0)
+		if _slow_flash > 0.0:
+			draw_circle(Vector2(0, -12), 36.0, Color(0.95, 0.86, 0.62, _slow_flash * 0.35))
 	if kind != Rules.Kind.EMPLOYEE:
 		return
 	if _show_resource_bars():
 		var y := -78.0
 		if name_label:
 			y = name_label.position.y + 16.0
-		_draw_meter(Vector2(-24, y), 48, 5, hours / Rules.HOURS_START, Color(0.24, 0.86, 0.94))
-		_draw_meter(Vector2(-24, y + 8), 48, 5, energy / Rules.ENERGY_MAX, Color(0.96, 0.78, 0.29))
+		_draw_cells(Vector2(-28, y), tasks_done, Rules.TASK_COUNT, task_progress if tasking else 0.0, Color(0.24, 0.86, 0.94))
+		_draw_cells(Vector2(-28, y + 10), energy_cells, Rules.ENERGY_CELLS, energy_charge, Color(0.96, 0.78, 0.29))
 	if emp_state != Rules.EmpState.TALK:
 		return
 	var w := 42.0
@@ -962,6 +1534,18 @@ func _draw() -> void:
 	draw_rect(Rect2(-w * 0.5, ty, w, 6), Color(0.14, 0.14, 0.16, 0.9))
 	var fill := Color(0.86, 0.22, 0.18) if Match.is_watched(self) else Color(0.95, 0.62, 0.22)
 	draw_rect(Rect2(-w * 0.5, ty, w * clampf(talk_progress, 0.0, 1.0), 6), fill)
+
+
+func _draw_cells(pos: Vector2, filled: int, total: int, partial: float, accent: Color) -> void:
+	var n := maxi(total, 1)
+	var w := 9.0
+	for i in n:
+		var p := pos + Vector2(float(i) * (w + 2.0), 0)
+		draw_rect(Rect2(p, Vector2(w, 7)), Color(0.16, 0.18, 0.22, 0.72))
+		if i < filled:
+			draw_rect(Rect2(p, Vector2(w, 7)), accent)
+		elif i == filled and partial > 0.04:
+			draw_rect(Rect2(p, Vector2(w * clampf(partial, 0.0, 1.0), 7)), accent.lerp(Color.WHITE, 0.25))
 
 
 func _draw_meter(pos: Vector2, width: float, height: float, ratio: float, accent: Color) -> void:

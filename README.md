@@ -37,5 +37,5 @@ go run ./cmd/clockout-server
 
 ## 操作
 
-- 员工：WASD，E 坐下 / 续命 / 捞人，F 摸鱼
+- 员工：WASD，E 坐下 / 续命 / 捞人，F 摸鱼，Shift 冲刺（冷却 8 秒）
 - 老板：WASD，E 约谈（盯着复盘会加速，走开同事能捞人），Q 拉去开会，R KPI，Shift 冲刺

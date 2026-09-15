@@ -8,6 +8,7 @@ signal kpi_popup
 signal caught(slot: int, repeat: bool, add_hours: float)
 signal talked(slot: int)
 signal rescued(slot: int, by_slot: int)
+signal stock_played(slot: int, pnl: float, energy_loss: float, boosted: bool)
 
 var phase := "lobby"
 var playing := false
@@ -23,6 +24,7 @@ var slots: Dictionary = {
 	Rules.Slot.EMP_C: -1,
 	Rules.Slot.EMP_D: -1,
 	Rules.Slot.EMP_E: -1,
+	Rules.Slot.EMP_F: -1,
 }
 var names: Dictionary = {}
 var clock_log: Dictionary = {}
@@ -32,6 +34,8 @@ var actors: Dictionary = {}
 var office: OfficeMap
 var world: Node2D
 var bots: Array = []
+var reports: Dictionary = {}
+var _next_report_id := 1
 
 var _actor_scene: PackedScene = preload("res://src/actor/Actor.tscn")
 
@@ -194,6 +198,7 @@ func begin_match(p_short: bool, instant: bool = false) -> void:
 
 
 func _spawn_all() -> void:
+	_clear_reports()
 	for a in actors.values():
 		(a as Node).queue_free()
 	actors.clear()
@@ -214,10 +219,11 @@ func _spawn_all() -> void:
 			actor.global_position = office.points["boss_spawn"]
 		else:
 			actor.global_position = office.seat_for_slot(int(s))
-			actor.emp_state = Rules.EmpState.WORK
-			actor.occupy_id = "seat_%d" % (Rules.employee_index(int(s)) + 1)
-			actor.last_seat = Rules.employee_index(int(s)) + 1
-			office.take_spot(actor.occupy_id, int(s))
+			actor.emp_state = Rules.EmpState.WALK
+			actor.energy_cells = 0
+			actor.energy_charge = 0.0
+			actor.tasks_done = 0
+			actor._refresh_legacy()
 		actors[int(s)] = actor
 		spawn_actor.rpc(int(s), pid, pname, actor.global_position.x, actor.global_position.y, actor.emp_state)
 		if pid == 0:
@@ -240,18 +246,53 @@ func spawn_actor(slot: int, pid: int, pname: String, x: float, y: float, st: int
 	office.add_child(actor, true)
 	actor.global_position = Vector2(x, y)
 	actor.emp_state = st
+	if Rules.slot_is_employee(slot):
+		actor.energy_cells = 0
+		actor.energy_charge = 0.0
+		actor.tasks_done = 0
+		actor.tasking = false
+		actor._refresh_legacy()
 	actors[slot] = actor
 
 
 @rpc("authority", "unreliable")
-func sync_actor(slot: int, x: float, y: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, _occ: String, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0) -> void:
+func sync_actor(slot: int, x: float, y: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, _occ: String, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0, slow: float = 0.0, rcd: float = 0.0, fcd: float = 0.0) -> void:
 	if multiplayer.is_server():
 		return
 	if not actors.has(slot):
 		return
 	var actor := actors[slot] as Actor
 	var state := Rules.EmpState.CARRIED if actor.carried_by >= 0 else (Rules.EmpState.WALK if st == Rules.EmpState.CARRIED else st)
-	actor.apply_snapshot(x, y, state, h, e, vis, mcd, kcd, dcd, talk, rescue, bike)
+	actor.apply_snapshot(x, y, state, h, e, vis, mcd, kcd, dcd, talk, rescue, bike, slow, rcd, fcd)
+
+
+@rpc("authority", "unreliable")
+func sync_cells(slot: int, done: int, progress: float, cells: int, charge: float, kind: String, t: float, mark: float, hits: int, msg: String, busy: int, occ := "") -> void:
+	if multiplayer.is_server():
+		return
+	if not actors.has(slot):
+		return
+	var actor := actors[slot] as Actor
+	actor.tasks_done = done
+	actor.task_progress = progress
+	actor.energy_cells = cells
+	actor.energy_charge = charge
+	actor.play_kind = kind
+	actor.play_t = t
+	actor.play_mark = mark
+	actor.play_hits = hits
+	actor.play_msg = msg
+	actor.tasking = busy == 1
+	if occ != "":
+		actor.occupy_id = occ
+	actor._refresh_legacy()
+
+
+@rpc("authority", "unreliable")
+func sync_trade(slot: int, left: float, price: float, cash: float, shares: float, holding: bool, hist: PackedFloat32Array) -> void:
+	if not actors.has(slot):
+		return
+	(actors[slot] as Actor).apply_trade(left, price, cash, shares, holding, hist)
 
 
 @rpc("authority", "unreliable")
@@ -294,7 +335,9 @@ func is_watched(emp: Actor) -> bool:
 func is_catchable(emp: Actor) -> bool:
 	if emp.kind != Rules.Kind.EMPLOYEE:
 		return false
-	if emp.emp_state == Rules.EmpState.SLACK or emp.emp_state == Rules.EmpState.COFFEE or emp.emp_state == Rules.EmpState.TOILET:
+	if emp.emp_state == Rules.EmpState.SLACK or emp.emp_state == Rules.EmpState.COFFEE or emp.emp_state == Rules.EmpState.TOILET or emp.emp_state == Rules.EmpState.TRADE:
+		return true
+	if emp.play_kind != "":
 		return true
 	return emp.rescue_left > 0.0 or emp.carrying_slot >= 0
 
@@ -547,6 +590,45 @@ func notify_rescued(slot: int, by_slot: int) -> void:
 	rescued.emit(slot, by_slot)
 
 
+func apply_stock_boost(from_slot: int, pnl: float) -> void:
+	if not multiplayer.is_server():
+		return
+	for a in actors.values():
+		var e := a as Actor
+		if e.kind != Rules.Kind.EMPLOYEE:
+			continue
+		if e.emp_state == Rules.EmpState.LEFT:
+			continue
+		e.boost_left = maxf(e.boost_left, Rules.STOCK_BOOST_TIME)
+	notify_stock.rpc(from_slot, pnl, 0.0, true)
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_stock(slot: int, pnl: float, energy_loss: float, boosted: bool) -> void:
+	if boosted:
+		for a in actors.values():
+			var e := a as Actor
+			if e.kind != Rules.Kind.EMPLOYEE:
+				continue
+			if e.emp_state == Rules.EmpState.LEFT:
+				continue
+			e.boost_left = maxf(e.boost_left, Rules.STOCK_BOOST_TIME)
+	stock_played.emit(slot, pnl, energy_loss, boosted)
+
+
+func trade_threat(emp: Actor) -> float:
+	if emp == null or office == null or not actors.has(Rules.Slot.BOSS):
+		return 0.0
+	var boss: Actor = actors[Rules.Slot.BOSS]
+	if boss == null:
+		return 0.0
+	var d := emp.global_position.distance_to(boss.global_position)
+	var t := 1.0 - clampf((d - Rules.CATCH_RANGE) / maxf(Rules.STOCK_NEAR - Rules.CATCH_RANGE, 1.0), 0.0, 1.0)
+	if office.same_view(emp.global_position, boss.global_position):
+		t = maxf(t, 0.58)
+	return t
+
+
 func try_meeting(boss: Actor) -> bool:
 	var best: Actor = null
 	var best_d := 420.0
@@ -577,11 +659,116 @@ func _can_see(from: Vector2, to: Vector2) -> bool:
 	return hit.is_empty()
 
 
+func paper_blocked(from: Vector2, to: Vector2) -> bool:
+	if office == null:
+		return false
+	var space := office.get_world_2d().direct_space_state
+	var q := PhysicsRayQueryParameters2D.create(from, to)
+	q.collision_mask = OfficeMap.PAPER_BLOCK
+	var hit := space.intersect_ray(q)
+	return not hit.is_empty()
+
+
+func report_hittable(emp: Actor) -> bool:
+	if emp == null or emp.kind != Rules.Kind.EMPLOYEE:
+		return false
+	if emp.emp_state in [Rules.EmpState.LEFT, Rules.EmpState.TALK, Rules.EmpState.MEETING, Rules.EmpState.CARRIED]:
+		return false
+	return true
+
+
+func report_victim(pos: Vector2) -> Actor:
+	var best: Actor = null
+	var best_d := Rules.REPORT_HIT_RADIUS
+	for a in actors.values():
+		var e := a as Actor
+		if not report_hittable(e):
+			continue
+		var d := pos.distance_to(e.global_position)
+		if d < best_d:
+			best_d = d
+			best = e
+	return best
+
+
+func try_throw_reports(boss: Actor, fan: bool) -> bool:
+	if boss == null or office == null:
+		return false
+	var aim := boss.facing_dir()
+	var origin := boss.throw_origin()
+	var dirs: Array[Vector2] = []
+	if fan:
+		var n := Rules.REPORT_FAN_COUNT
+		var spread := deg_to_rad(Rules.REPORT_FAN_SPREAD)
+		for i in n:
+			var t := 0.0 if n <= 1 else float(i) / float(n - 1)
+			dirs.append(aim.rotated(-spread * 0.5 + spread * t))
+	else:
+		dirs.append(aim)
+	for i in dirs.size():
+		var id := _next_report_id
+		_next_report_id += 1
+		var speed_mul := 1.0 if not fan else randf_range(0.92, 1.08)
+		spawn_report.rpc(id, origin.x, origin.y, dirs[i].x, dirs[i].y, speed_mul)
+	return true
+
+
+@rpc("authority", "call_local", "reliable")
+func spawn_report(id: int, x: float, y: float, dx: float, dy: float, speed_mul: float = 1.0) -> void:
+	if office == null:
+		return
+	var paper := WeeklyReport.new()
+	paper.setup(id, Vector2(x, y), Vector2(dx, dy), multiplayer.is_server(), speed_mul)
+	office.add_child(paper)
+	reports[id] = paper
+
+
+func end_report(id: int, slot: int) -> void:
+	if not multiplayer.is_server():
+		return
+	if not reports.has(id):
+		return
+	var paper = reports[id]
+	if paper == null or not paper.flying:
+		return
+	if slot >= 0:
+		var emp: Actor = actors.get(slot) as Actor
+		if emp != null and emp.apply_report_hit():
+			notify_report_hit.rpc(slot)
+		else:
+			slot = -1
+	finish_report.rpc(id, slot)
+
+
+@rpc("authority", "call_local", "reliable")
+func finish_report(id: int, slot: int) -> void:
+	var paper = reports.get(id)
+	if paper != null and is_instance_valid(paper):
+		paper.begin_burst(slot >= 0)
+	reports.erase(id)
+
+
+@rpc("authority", "reliable")
+func notify_report_hit(slot: int) -> void:
+	if multiplayer.is_server():
+		return
+	var emp: Actor = actors.get(slot) as Actor
+	if emp != null:
+		emp.apply_report_hit()
+
+
+func _clear_reports() -> void:
+	for paper in reports.values():
+		if is_instance_valid(paper):
+			(paper as Node).queue_free()
+	reports.clear()
+
+
 func cast_kpi() -> void:
 	for a in actors.values():
 		var e := a as Actor
-		if e.kind == Rules.Kind.EMPLOYEE and e.emp_state != Rules.EmpState.LEFT:
-			e.hours += Rules.KPI_HOURS
+		if e.kind == Rules.Kind.EMPLOYEE and e.emp_state != Rules.EmpState.LEFT and e.emp_state != Rules.EmpState.CLOCKING:
+			e.lose_task()
 	show_kpi.rpc()
 
 
@@ -608,6 +795,7 @@ func _all_punched() -> bool:
 
 
 func _finish() -> void:
+	_clear_reports()
 	for actor in actors.values():
 		release_actor_carry(actor)
 	if phase == "result":
@@ -660,6 +848,7 @@ func sync_lobby(p_slots: Dictionary, p_names: Dictionary, p_short: bool, p_phase
 		Rules.Slot.EMP_C: -1,
 		Rules.Slot.EMP_D: -1,
 		Rules.Slot.EMP_E: -1,
+		Rules.Slot.EMP_F: -1,
 	}
 	for k in p_slots.keys():
 		slots[int(k)] = int(p_slots[k])
@@ -733,6 +922,7 @@ func reset_lobby() -> void:
 			(a as Node).queue_free()
 	actors.clear()
 	bots.clear()
+	_clear_reports()
 	lobby_changed.emit()
 
 

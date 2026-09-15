@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c497e1e4cb2b2"
-path="res://.godot/imported/sleep_3.png-497e1e4cb2b21b74024978ed141f6781.ctex"
+uid="uid://c5a7e1e4cb2b2"
+path="res://.godot/imported/sleep_3.png-6eeb403a9603c6c55d038c82c75f5d1b.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/game/chars/horse/scarf/sleep_3.png"
-dest_files=["res://.godot/imported/sleep_3.png-497e1e4cb2b21b74024978ed141f6781.ctex"]
+dest_files=["res://.godot/imported/sleep_3.png-6eeb403a9603c6c55d038c82c75f5d1b.ctex"]
 
 [params]
 

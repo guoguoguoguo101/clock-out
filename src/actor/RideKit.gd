@@ -17,6 +17,7 @@ const HIP_FOR_SKIN := {
 	Rules.CharSkin.COW: Vector2(0.50, 0.38),
 	Rules.CharSkin.PELICAN: Vector2(0.48, 0.36),
 	Rules.CharSkin.KANGAROO: Vector2(0.46, 0.36),
+	Rules.CharSkin.DOG: Vector2(0.50, 0.34),
 }
 
 static var _used: Dictionary = {}

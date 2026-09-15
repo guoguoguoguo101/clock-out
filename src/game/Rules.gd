@@ -10,16 +10,22 @@ const SHORT_MATCH_SECONDS := 180.0
 const COUNTDOWN := 3.0
 
 const HOURS_START := 100.0
-const ENERGY_START := 100.0
+const ENERGY_START := 0.0
 const ENERGY_MAX := 100.0
+const ENERGY_CELLS := 4
+const ENERGY_CHARGE_SEC := 24.0
+const ENERGY_SLACK_SEC := 9.0
+const TASK_COUNT := 5
+const TASK_TIME := 10.0
+const TASK_NAMES := ["日报", "周报", "对齐", "复盘", "纪要"]
 
 const WORK_HOURS_PER_SEC := 1.15
-const EMPTY_HOURS_PER_SEC := 0.05
-const WORK_ENERGY_PER_SEC := 2.0
+const EMPTY_HOURS_PER_SEC := 0.0
+const WORK_ENERGY_PER_SEC := 0.0
 const SLACK_ENERGY_PER_SEC := 2.0
 const COFFEE_ENERGY_PER_SEC := 6.0
 const TOILET_ENERGY_PER_SEC := 7.0
-const MEETING_ENERGY_PER_SEC := 0.4
+const MEETING_ENERGY_PER_SEC := 0.0
 
 const COFFEE_BUFF_TIME := 20.0
 const COFFEE_BUFF_MUL := 1.2
@@ -60,6 +66,19 @@ const BOSS_BASE_SPEED := 182.0
 const TIGER_DASH_CD := 12.0
 const TIGER_DASH_TIME := 0.28
 const TIGER_DASH_SPEED := 420.0
+const EMP_DASH_CD := 8.0
+const EMP_DASH_TIME := 0.28
+const EMP_DASH_SPEED := 360.0
+
+const REPORT_SPEED := 310.0
+const REPORT_LIFE := 1.35
+const REPORT_HIT_RADIUS := 34.0
+const REPORT_SLOW_TIME := 3.0
+const REPORT_SLOW_MUL := 0.5
+const REPORT_CD := 0.8
+const REPORT_FAN_CD := 2.2
+const REPORT_FAN_COUNT := 7
+const REPORT_FAN_SPREAD := 90.0
 
 const INTERACT_RANGE := 64.0
 const DOOR_RANGE := 62.0
@@ -73,14 +92,23 @@ const CARRY_RECOVERY := 0.65
 const BIKE_DURATION := 10.0
 const BIKE_SPEED_MUL := 1.45
 
+const STOCK_TIME := 10.0
+const STOCK_START := 100.0
+const STOCK_TICK := 0.12
+const STOCK_BOOST_TIME := 5.0
+const STOCK_CD := 40.0
+const STOCK_NEAR := 280.0
+const STOCK_WIN := 0.5
+const STOCK_ENERGY_GAIN := 1
+
 const BOSS_SPRITE := 0.11
 
-enum Slot { BOSS, EMP_A, EMP_B, EMP_C, EMP_D, EMP_E }
+enum Slot { BOSS, EMP_A, EMP_B, EMP_C, EMP_D, EMP_E, EMP_F }
 enum Kind { BOSS, EMPLOYEE }
-enum EmpState { WALK, WORK, SLACK, COFFEE, TOILET, MEETING, CLOCKING, LEFT, TALK, CARRIED }
-enum CharSkin { HORSE, RABBIT, COW, PELICAN, KANGAROO, TIGER }
+enum EmpState { WALK, WORK, SLACK, COFFEE, TOILET, MEETING, CLOCKING, LEFT, TALK, CARRIED, TRADE }
+enum CharSkin { HORSE, RABBIT, COW, PELICAN, KANGAROO, TIGER, DOG }
 
-const EMPLOYEE_SLOTS := [Slot.EMP_A, Slot.EMP_B, Slot.EMP_C, Slot.EMP_D, Slot.EMP_E]
+const EMPLOYEE_SLOTS := [Slot.EMP_A, Slot.EMP_B, Slot.EMP_C, Slot.EMP_D, Slot.EMP_E, Slot.EMP_F]
 
 const SLOT_NAMES := {
 	Slot.BOSS: "老板",
@@ -89,6 +117,7 @@ const SLOT_NAMES := {
 	Slot.EMP_C: "员工·牛",
 	Slot.EMP_D: "员工·鹈鹕",
 	Slot.EMP_E: "员工·袋鼠",
+	Slot.EMP_F: "员工·小狗",
 }
 
 const SKIN_FOR_SLOT := {
@@ -98,6 +127,7 @@ const SKIN_FOR_SLOT := {
 	Slot.EMP_C: CharSkin.COW,
 	Slot.EMP_D: CharSkin.PELICAN,
 	Slot.EMP_E: CharSkin.KANGAROO,
+	Slot.EMP_F: CharSkin.DOG,
 }
 
 const BODY_FOR_SKIN := {
@@ -110,6 +140,7 @@ const SCARF_FOR_SKIN := {
 	CharSkin.COW: Color("E23B3B"),
 	CharSkin.PELICAN: Color("7B5CFF"),
 	CharSkin.KANGAROO: Color("FF9A1A"),
+	CharSkin.DOG: Color("E1251B"),
 }
 
 const BIKE_COLOR_FOR_SKIN := {
@@ -127,6 +158,7 @@ const STATE_NAMES := {
 	EmpState.LEFT: "已下班",
 	EmpState.TALK: "约谈中",
 	EmpState.CARRIED: "顺风嘴 · 搭乘中",
+	EmpState.TRADE: "盘中",
 }
 
 func body_color(skin: int) -> Color:
@@ -142,7 +174,7 @@ func bike_color(skin: int) -> Color:
 
 
 func slot_is_employee(slot: int) -> bool:
-	return slot >= Slot.EMP_A and slot <= Slot.EMP_E
+	return slot >= Slot.EMP_A and slot <= Slot.EMP_F
 
 
 func employee_index(slot: int) -> int:
@@ -151,6 +183,12 @@ func employee_index(slot: int) -> int:
 
 func talk_quip(slot: int) -> String:
 	return TALK_QUIPS[slot % TALK_QUIPS.size()]
+
+
+func task_name(done: int) -> String:
+	if TASK_NAMES.is_empty():
+		return "工作"
+	return str(TASK_NAMES[clampi(done, 0, TASK_NAMES.size() - 1)])
 
 
 func office_clock_text(progress: float) -> String:
