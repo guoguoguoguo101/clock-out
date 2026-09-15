@@ -72,6 +72,10 @@ func (b *BossBot) Tick(dt float64) {
 		a.WantKPI = true
 		b.Wait = 8
 	}
+	if b.Match.Elapsed > IncidentUnlock+5 && a.IncidentCD <= 0 && !b.Match.IncidentActive && b.Wait <= 0 {
+		a.WantIncident = true
+		b.Wait = 12
+	}
 }
 
 func (b *BossBot) talkHere() *Actor {

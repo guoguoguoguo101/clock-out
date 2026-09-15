@@ -80,6 +80,26 @@ const REPORT_FAN_CD := 2.2
 const REPORT_FAN_COUNT := 7
 const REPORT_FAN_SPREAD := 90.0
 
+# 线上事故
+const INCIDENT_CD := 90.0
+const INCIDENT_UNLOCK := 90.0
+const INCIDENT_DURATION := 30.0
+const INCIDENT_FIX_TIME := 8.0
+const INCIDENT_ASSIST_REDUCE := 5.0
+const INCIDENT_BLAME_TIME := 1.5
+const INCIDENT_FAIL_HOURS := 20.0
+const INCIDENT_BOSS_SPEED_MUL := 1.25
+const INCIDENT_BOSS_RANGE_MUL := 1.4
+const INCIDENT_CATCH_DELAY_MUL := 0.5
+const INCIDENT_FIX_ENERGY := 1
+
+const INCIDENT_BOSS_QUIPS := ["谁上线的？查！", "这谁写的代码？", "你们组谁负责这块？", "马上查，别下班了"]
+const INCIDENT_BLAME_QUIPS := ["不是我提交的啊", "我看看 git blame", "这块不归我管吧", "？？？"]
+const INCIDENT_FIX_QUIPS := ["hotfix 上了", "先回滚再说", "日志看完了，修了", "CI 过了，合"]
+const INCIDENT_ASSIST_QUIPS := ["我来 review", "我帮你看看日志", "一起 debug", "我查监控"]
+const INCIDENT_FAIL_QUIPS := ["写复盘吧", "明天早会讲", "这个锅背定了"]
+const INCIDENT_PASS_QUIPS := ["这块不归我管", "找原 owner 吧", "我这边没问题啊", "你看看你那边"]
+
 const INTERACT_RANGE := 64.0
 const DOOR_RANGE := 62.0
 const DOOR_OPEN_TIME := 1.65

@@ -45,6 +45,10 @@ var mate_box: Array[ColorRect] = []
 var mate_lab: Array[Label] = []
 var mate_snow: Array[ColorRect] = []
 var watch_label: Label
+var incident_veil: ColorRect
+var incident_banner: Label
+var incident_timer_label: Label
+var incident_terminal_marker: ColorRect
 var home_page: Control
 var join_page: Control
 var char_page: Control
@@ -64,12 +68,15 @@ var _pulse_kpi := false
 var _pulse_dash := false
 var _pulse_report := false
 var _pulse_fan := false
+var _pulse_incident := false
+var _pulse_blame := false
 var _e_down := false
 var _f_down := false
 var _q_down := false
 var _r_down := false
 var _shift_down := false
 var _g_down := false
+var _t_down := false
 var _esc_down := false
 var _cam_z := 1.1
 var _shake := 0.0
@@ -97,6 +104,10 @@ func _ready() -> void:
 	Match.talked.connect(_on_talked)
 	Match.rescued.connect(_on_rescued)
 	Match.stock_played.connect(_on_stock)
+	Match.incident_started.connect(_on_incident_start)
+	Match.incident_ended.connect(_on_incident_end)
+	Match.blame_passed.connect(_on_blame_pass)
+	Match.fix_completed.connect(_on_fix_done)
 	Net.status_changed.connect(_refresh_lobby)
 	Net.peer_list_changed.connect(_refresh_lobby)
 	Net.room_ready.connect(_on_room_ready)
@@ -297,6 +308,36 @@ func _build_ui() -> void:
 	hud.add_child(catch_banner)
 	stock_desk = StockDeskScript.new()
 	hud.add_child(stock_desk)
+
+	# 事故 UI
+	incident_veil = ColorRect.new()
+	incident_veil.set_anchors_preset(Control.PRESET_FULL_RECT)
+	incident_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	incident_veil.color = Color(0.8, 0.04, 0.04, 0.0)
+	incident_veil.visible = false
+	hud.add_child(incident_veil)
+	incident_banner = Label.new()
+	incident_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	incident_banner.offset_left = -240
+	incident_banner.offset_top = 46
+	incident_banner.offset_right = 240
+	incident_banner.offset_bottom = 76
+	incident_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	incident_banner.add_theme_font_size_override("font_size", 18)
+	incident_banner.add_theme_color_override("font_color", Color(1.0, 0.92, 0.88))
+	incident_banner.visible = false
+	hud.add_child(incident_banner)
+	incident_timer_label = Label.new()
+	incident_timer_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	incident_timer_label.offset_left = -80
+	incident_timer_label.offset_top = 72
+	incident_timer_label.offset_right = 80
+	incident_timer_label.offset_bottom = 92
+	incident_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	incident_timer_label.add_theme_font_size_override("font_size", 14)
+	incident_timer_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.35))
+	incident_timer_label.visible = false
+	hud.add_child(incident_timer_label)
 	hours_bar.z_index = 24
 	energy_bar.z_index = 24
 	energy_play.z_index = 40
@@ -1491,6 +1532,85 @@ func _on_caught(slot: int, _repeat: bool, add_hours: float) -> void:
 		_flash_banner("%s 复盘完了" % _slot_nick(slot), Color(0.72, 0.22, 0.18), 1.0)
 
 
+func _on_incident_start(blame_slot: int) -> void:
+	var my := Match.my_slot()
+	var who := _slot_nick(blame_slot)
+	_shake = 0.5
+	_cam_punch = 0.6
+	if incident_veil:
+		incident_veil.visible = true
+	if incident_banner:
+		incident_banner.visible = true
+		incident_banner.text = "⚠ 线上事故 · P0 · 第一责任人：%s" % who
+	if incident_timer_label:
+		incident_timer_label.visible = true
+	if my == blame_slot:
+		_flash_banner("你是第一责任人 · 去终端修 Bug 或甩锅！", Color(0.95, 0.22, 0.14), 2.5)
+	elif my == Rules.Slot.BOSS:
+		_flash_banner("事故触发 · 责任人：%s" % who, Color(0.82, 0.55, 0.22), 2.0)
+	else:
+		_flash_banner("线上事故！责任人：%s · 可以去帮忙修" % who, Color(0.92, 0.42, 0.22), 2.0)
+
+
+func _on_incident_end(fixed: bool, blame_slot: int) -> void:
+	if incident_veil:
+		incident_veil.visible = false
+	if incident_banner:
+		incident_banner.visible = false
+	if incident_timer_label:
+		incident_timer_label.visible = false
+	var my := Match.my_slot()
+	if fixed:
+		_flash_banner("事故修复 · 恢复正常", Color(0.28, 0.82, 0.42), 1.8)
+		_cam_punch = 0.3
+	else:
+		var who := _slot_nick(blame_slot)
+		if my == blame_slot:
+			_flash_banner("事故未修复 · 写复盘吧", Color(0.92, 0.18, 0.14), 2.0)
+			_shake = 0.35
+			_catch_t = 0.6
+		elif my == Rules.Slot.BOSS:
+			_flash_banner("事故超时 · %s 背锅" % who, Color(0.82, 0.55, 0.22), 1.5)
+		else:
+			_flash_banner("事故超时 · %s 被罚" % who, Color(0.72, 0.42, 0.22), 1.5)
+
+
+func _on_blame_pass(from_slot: int, to_slot: int) -> void:
+	var my := Match.my_slot()
+	var from := _slot_nick(from_slot)
+	var to := _slot_nick(to_slot)
+	_cam_punch = 0.3
+	_shake = 0.2
+	if incident_banner:
+		incident_banner.text = "⚠ 线上事故 · P0 · 责任人：%s" % to
+	if my == from_slot:
+		_flash_banner("甩锅成功 · 锅给了 %s" % to, Color(0.42, 0.82, 0.42), 1.3)
+	elif my == to_slot:
+		_flash_banner("被甩锅！你现在是责任人！", Color(0.95, 0.22, 0.14), 1.8)
+		_shake = 0.35
+		_catch_t = 0.4
+	elif my == Rules.Slot.BOSS:
+		_flash_banner("甩锅：%s → %s" % [from, to], Color(0.82, 0.62, 0.22), 1.2)
+	else:
+		_flash_banner("%s 把锅甩给了 %s" % [from, to], Color(0.72, 0.52, 0.32), 1.2)
+
+
+func _on_fix_done(slot: int, is_assist: bool) -> void:
+	var my := Match.my_slot()
+	var who := _slot_nick(slot)
+	if my == slot:
+		if is_assist:
+			_flash_banner("帮修完成 · 精力 +1", Color(0.28, 0.82, 0.42), 1.3)
+		else:
+			_flash_banner("Bug 修复！事故解除！", Color(0.22, 0.92, 0.48), 1.8)
+		_cam_punch = 0.3
+	else:
+		if is_assist:
+			_flash_banner("%s 帮忙修完了 · 事故缩短" % who, Color(0.42, 0.72, 0.42), 1.0)
+		else:
+			_flash_banner("%s 修复了 Bug · 事故解除" % who, Color(0.22, 0.82, 0.42), 1.5)
+
+
 func _same_view_as(other: Actor) -> bool:
 	var me := _local_actor()
 	if me == null or other == null or office == null:
@@ -1557,8 +1677,9 @@ func _refresh_hud() -> void:
 			hint_label.text = "先找精力：茶水间手冲、饮水机、零食、翻抽屉    E 坐下后还要再确认开工    Shift 冲刺"
 	elif actor != null and actor.kind == Rules.Kind.BOSS:
 		you_role.text = "工牌 · 老板"
-		state_label.text = "开会 %.0fs  KPI %.0fs  冲刺 %.0fs  周报 %.0fs  扇形 %.0fs" % [actor.meeting_cd, actor.kpi_cd, actor.dash_cd, actor.report_cd, actor.fan_cd]
-		hint_label.text = "E 约谈 / 开门    F 扔周报    G 扇形周报    Q 开会    R KPI    Shift 冲刺"
+		var inc_txt := "事故 %.0fs" % actor.incident_cd if actor.incident_cd > 0.05 else ("事故进行中 %.0fs" % Match.incident_left if Match.incident_active else "事故就绪")
+		state_label.text = "开会 %.0fs  KPI %.0fs  %s  冲刺 %.0fs  周报 %.0fs  扇形 %.0fs" % [actor.meeting_cd, actor.kpi_cd, inc_txt, actor.dash_cd, actor.report_cd, actor.fan_cd]
+		hint_label.text = "E 约谈 / 开门    F 扔周报    G 扇形周报    Q 开会    R KPI    T 线上事故    Shift 冲刺"
 	hint_label.modulate.a = clampf(_help_t / 2.0, 0.0, 1.0)
 	_refresh_lamps()
 
@@ -1661,14 +1782,14 @@ func _process(delta: float) -> void:
 		dir.y += 1
 	if Net.go_match():
 		_go_input_t += delta
-		var pulsed := _pulse_interact or _pulse_slack or _pulse_meeting or _pulse_kpi or _pulse_dash or _pulse_report or _pulse_fan
+		var pulsed := _pulse_interact or _pulse_slack or _pulse_meeting or _pulse_kpi or _pulse_dash or _pulse_report or _pulse_fan or _pulse_incident or _pulse_blame
 		if pulsed or _go_input_t >= 0.05:
 			_go_input_t = 0.0
 			Net.send_input(dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash)
 	elif Net.is_enet_server():
-		actor.apply_input(dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash, _pulse_report, _pulse_fan)
+		actor.apply_input(dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash, _pulse_report, _pulse_fan, _pulse_incident, _pulse_blame)
 	else:
-		actor.recv_input.rpc_id(1, dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash, _pulse_report, _pulse_fan)
+		actor.recv_input.rpc_id(1, dir.x, dir.y, _pulse_interact, _pulse_slack, _pulse_meeting, _pulse_kpi, _pulse_dash, _pulse_report, _pulse_fan, _pulse_incident, _pulse_blame)
 	_pulse_interact = false
 	_pulse_slack = false
 	_pulse_meeting = false
@@ -1676,6 +1797,8 @@ func _process(delta: float) -> void:
 	_pulse_dash = false
 	_pulse_report = false
 	_pulse_fan = false
+	_pulse_incident = false
+	_pulse_blame = false
 
 
 func _update_camera(delta: float) -> void:
@@ -1767,6 +1890,24 @@ func _update_camera(delta: float) -> void:
 		var c := catch_veil.color
 		c.a = lerpf(c.a, veil_a, 1.0 - exp(-8.0 * delta))
 		catch_veil.color = c
+	# 事故红色边缘脉冲
+	if incident_veil:
+		if Match.incident_active:
+			incident_veil.visible = true
+			var inc_pulse := 0.08 + 0.06 * absf(sin(_breath_t * 4.2))
+			incident_veil.color = Color(0.8, 0.04, 0.04, inc_pulse)
+		else:
+			incident_veil.color.a = lerpf(incident_veil.color.a, 0.0, 1.0 - exp(-6.0 * delta))
+			if incident_veil.color.a < 0.005:
+				incident_veil.visible = false
+	if incident_timer_label:
+		if Match.incident_active:
+			incident_timer_label.visible = true
+			incident_timer_label.text = "剩余 %.0fs" % ceilf(Match.incident_left)
+			var blink := int(_breath_t * 3.0) % 2 == 0
+			incident_timer_label.add_theme_color_override("font_color", Color(1.0, 0.35, 0.25) if blink else Color(1.0, 0.65, 0.55))
+		else:
+			incident_timer_label.visible = false
 	for i in mate_snow.size():
 		var snow := mate_snow[i]
 		if snow.color.a > 0.04:
@@ -1807,6 +1948,7 @@ func _edge_keys() -> void:
 	var r := Input.is_physical_key_pressed(KEY_R)
 	var sh := Input.is_physical_key_pressed(KEY_SHIFT)
 	var g := Input.is_physical_key_pressed(KEY_G)
+	var t_key := Input.is_physical_key_pressed(KEY_T)
 	var esc := Input.is_physical_key_pressed(KEY_ESCAPE)
 	var actor := _local_actor()
 	var boss := actor != null and actor.kind == Rules.Kind.BOSS
@@ -1815,10 +1957,15 @@ func _edge_keys() -> void:
 	if f and not _f_down:
 		if boss:
 			_pulse_report = true
+		elif actor != null and actor.is_blame_target and Match.incident_active:
+			_pulse_blame = true
 		else:
 			_pulse_slack = true
 	if g and not _g_down and boss:
 		_pulse_fan = true
+	if t_key and not _t_down:
+		if boss:
+			_pulse_incident = true
 	if q and not _q_down:
 		_pulse_meeting = true
 	if r and not _r_down:
@@ -1833,6 +1980,7 @@ func _edge_keys() -> void:
 	_r_down = r
 	_shift_down = sh
 	_g_down = g
+	_t_down = t_key
 	_esc_down = esc
 
 

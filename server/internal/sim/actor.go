@@ -8,6 +8,7 @@ import (
 type Input struct {
 	DX, DY                           float64
 	Interact, Slack, Meeting, KPI, Dash bool
+	Incident, Blame bool
 }
 
 type Actor struct {
@@ -46,8 +47,14 @@ type Actor struct {
 	DashCD      float64
 	DashLeft    float64
 	KPIFlash    float64
+	IncidentCD  float64
+	IsBlameTarget bool
+	Fixing      bool
+	FixProgress float64
+	BlamedOnce  bool
 	In          Vec
 	WantInteract, WantSlack, WantMeeting, WantKPI, WantDash bool
+	WantIncident, WantBlame bool
 }
 
 func NewActor(slot, peer int, name string, office *Office) *Actor {
@@ -90,6 +97,12 @@ func (a *Actor) ApplyInput(in Input) {
 	if in.Dash {
 		a.WantDash = true
 	}
+	if in.Incident {
+		a.WantIncident = true
+	}
+	if in.Blame {
+		a.WantBlame = true
+	}
 }
 
 func (a *Actor) Tick(m *Match, dt float64) {
@@ -106,6 +119,7 @@ func (a *Actor) Tick(m *Match, dt float64) {
 	a.BoostLeft = maxf(0, a.BoostLeft-dt)
 	a.MeetingCD = maxf(0, a.MeetingCD-dt)
 	a.KPICD = maxf(0, a.KPICD-dt)
+	a.IncidentCD = maxf(0, a.IncidentCD-dt)
 	a.DashCD = maxf(0, a.DashCD-dt)
 	a.DashLeft = maxf(0, a.DashLeft-dt)
 	a.KPIFlash = maxf(0, a.KPIFlash-dt)
@@ -119,6 +133,8 @@ func (a *Actor) Tick(m *Match, dt float64) {
 	a.WantMeeting = false
 	a.WantKPI = false
 	a.WantDash = false
+	a.WantIncident = false
+	a.WantBlame = false
 }
 
 func (a *Actor) employeeTick(m *Match, dt float64) {
@@ -466,6 +482,11 @@ func (a *Actor) bossTick(m *Match, dt float64) {
 		m.CastKPI()
 		a.KPICD = KPICD
 		a.KPIFlash = 1.6
+	}
+	if a.WantIncident && a.IncidentCD <= 0 && m.Elapsed >= IncidentUnlock && !m.IncidentActive {
+		if m.CastIncident(a) {
+			a.IncidentCD = IncidentCD
+		}
 	}
 }
 

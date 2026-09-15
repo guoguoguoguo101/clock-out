@@ -21,12 +21,18 @@ type Match struct {
 	Office    *Office
 	Bots      []Bot
 	Events    []protocol.Event
+	IncidentActive    bool
+	IncidentLeft      float64
+	IncidentBlameSlot int
+	IncidentTerminal  Vec
+	IncidentFixed     bool
 }
 
 func NewMatch() *Match {
 	m := &Match{
 		Phase:    "lobby",
 		TimeLeft: MatchSeconds,
+		IncidentBlameSlot: -1,
 		Slots: map[int]int{
 			SlotBoss: -1, SlotEmpA: -1, SlotEmpB: -1, SlotEmpC: -1, SlotEmpD: -1, SlotEmpE: -1,
 		},
@@ -154,6 +160,9 @@ func (m *Match) Tick(dt float64) {
 	}
 	m.Elapsed += dt
 	m.TimeLeft = maxf(0, m.TimeLeft-dt)
+	if m.IncidentActive {
+		m.tickIncident(dt)
+	}
 	for _, b := range m.Bots {
 		b.Tick(dt)
 	}
@@ -185,7 +194,11 @@ func (m *Match) IsSupervised(emp *Actor) bool {
 	if boss == nil {
 		return false
 	}
-	if boss.Pos.Dist(emp.Pos) <= SuperviseDist {
+	dist := SuperviseDist
+	if m.IncidentActive {
+		dist *= IncidentBossRangeMul
+	}
+	if boss.Pos.Dist(emp.Pos) <= dist {
 		return true
 	}
 	sid := emp.OccupyID
@@ -494,6 +507,118 @@ func (m *Match) CastKPI() {
 	m.emit(protocol.Event{Kind: "kpi"})
 }
 
+// ── 线上事故 ──────────────────────────────
+
+var incidentSpots = []Vec{
+	{1280, 670}, {280, 670}, {2100, 670}, {730, 1000}, {1100, 1000},
+}
+
+func (m *Match) CastIncident(boss *Actor) bool {
+	if m.IncidentActive {
+		return false
+	}
+	var best *Actor
+	bestDone := -1.0
+	for _, e := range m.Actors {
+		if e.Kind != KindEmployee || e.State == StateLeft || e.State == StateClocking {
+			continue
+		}
+		if e.Hours > bestDone {
+			bestDone = e.Hours
+			best = e
+		}
+	}
+	if best == nil {
+		return false
+	}
+	idx := int(m.Elapsed*1000) % len(incidentSpots)
+	m.IncidentTerminal = incidentSpots[idx]
+	m.IncidentActive = true
+	m.IncidentLeft = IncidentDuration
+	m.IncidentBlameSlot = best.Slot
+	m.IncidentFixed = false
+	for _, e := range m.Actors {
+		e.IsBlameTarget = e.Slot == best.Slot
+		e.Fixing = false
+		e.FixProgress = 0
+		e.BlamedOnce = false
+	}
+	m.emit(protocol.Event{Kind: "incident_start", Slot: best.Slot, X: m.IncidentTerminal.X, Y: m.IncidentTerminal.Y})
+	return true
+}
+
+func (m *Match) tickIncident(dt float64) {
+	m.IncidentLeft -= dt
+	for _, e := range m.Actors {
+		if !e.Fixing || e.Kind != KindEmployee {
+			continue
+		}
+		if e.State == StateLeft || e.State == StateTalk || e.State == StateMeeting {
+			e.Fixing = false
+			e.FixProgress = 0
+			continue
+		}
+		if e.Pos.Dist(m.IncidentTerminal) > InteractRange+40 {
+			e.Fixing = false
+			e.FixProgress = 0
+			continue
+		}
+		if e.In.Len() > 0.12 {
+			e.Fixing = false
+			e.FixProgress = 0
+			continue
+		}
+		dur := IncidentFixTime
+		if !e.IsBlameTarget {
+			dur *= 0.6
+		}
+		e.FixProgress = minf(1, e.FixProgress+dt/dur)
+		e.Vel = Vec{}
+		if e.FixProgress >= 1 {
+			m.completeFix(e)
+			return
+		}
+	}
+	if m.IncidentLeft <= 0 {
+		m.endIncident(false)
+	}
+}
+
+func (m *Match) completeFix(fixer *Actor) {
+	isAssist := !fixer.IsBlameTarget
+	fixer.Fixing = false
+	fixer.FixProgress = 0
+	m.emit(protocol.Event{Kind: "fix_done", Slot: fixer.Slot, On: isAssist})
+	if isAssist {
+		m.IncidentLeft = maxf(0, m.IncidentLeft-5.0)
+		if m.IncidentLeft <= 0 {
+			m.endIncident(true)
+		}
+	} else {
+		m.endIncident(true)
+	}
+}
+
+func (m *Match) endIncident(fixed bool) {
+	m.IncidentActive = false
+	m.IncidentFixed = fixed
+	if !fixed {
+		blame := m.Actors[m.IncidentBlameSlot]
+		if blame != nil && blame.State != StateLeft {
+			blame.Hours += IncidentFailHours
+			blame.StandLock = maxf(blame.StandLock, 2.0)
+		}
+	}
+	for _, e := range m.Actors {
+		e.IsBlameTarget = false
+		e.Fixing = false
+		e.FixProgress = 0
+	}
+	m.emit(protocol.Event{Kind: "incident_end", Slot: m.IncidentBlameSlot, On: fixed})
+	m.IncidentBlameSlot = -1
+	m.IncidentLeft = 0
+}
+
 func (m *Match) OnClockOut(slot int) {
 	m.ClockLog[slot] = m.Elapsed
 	if m.allPunched() {
@@ -601,6 +726,11 @@ func (m *Match) Snapshot() protocol.Snapshot {
 	snap := protocol.Snapshot{
 		Phase: m.Phase, Elapsed: m.Elapsed, Left: m.TimeLeft, Countdown: m.Countdown,
 		Occupiers: map[string]int{},
+		IncidentActive: m.IncidentActive,
+		IncidentLeft:   m.IncidentLeft,
+		IncidentBlame:  m.IncidentBlameSlot,
+		IncidentX:      m.IncidentTerminal.X,
+		IncidentY:      m.IncidentTerminal.Y,
 	}
 	for k, v := range m.Office.Occupiers {
 		snap.Occupiers[k] = v

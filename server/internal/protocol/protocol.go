@@ -56,6 +56,8 @@ type Message struct {
 	Meeting  bool       `json:"meeting,omitempty"`
 	KPI      bool       `json:"kpi,omitempty"`
 	Dash     bool       `json:"dash,omitempty"`
+	Incident bool       `json:"incident,omitempty"`
+	Blame    bool       `json:"blame,omitempty"`
 	On       bool       `json:"on,omitempty"`
 	Rooms    []RoomInfo `json:"rooms,omitempty"`
 	Snapshot *Snapshot  `json:"snapshot,omitempty"`
@@ -86,6 +88,11 @@ type Snapshot struct {
 	Actors    []ActorSnap        `json:"actors"`
 	Doors     []DoorSnap         `json:"doors"`
 	Occupiers map[string]int     `json:"occupiers"`
+	IncidentActive bool          `json:"incident_active,omitempty"`
+	IncidentLeft   float64       `json:"incident_left,omitempty"`
+	IncidentBlame  int           `json:"incident_blame,omitempty"`
+	IncidentX      float64       `json:"incident_x,omitempty"`
+	IncidentY      float64       `json:"incident_y,omitempty"`
 }
 
 type ActorSnap struct {
@@ -130,6 +137,10 @@ type Event struct {
 	Y          float64        `json:"y,omitempty"`
 	Interrupted bool          `json:"interrupted,omitempty"`
 	Facing     float64        `json:"facing,omitempty"`
+	From       int            `json:"from,omitempty"`
+	To         int            `json:"to,omitempty"`
+	Fixed      bool           `json:"fixed,omitempty"`
+	Assist     bool           `json:"assist,omitempty"`
 	Result     map[string]any `json:"result,omitempty"`
 }
 

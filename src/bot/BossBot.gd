@@ -70,6 +70,9 @@ func tick(delta: float) -> void:
 	if Match.elapsed > Rules.KPI_UNLOCK + 2.0 and actor.kpi_cd <= 0.0 and wait <= 0.0:
 		actor.want_kpi = true
 		wait = 8.0
+	if Match.elapsed > Rules.INCIDENT_UNLOCK + 5.0 and actor.incident_cd <= 0.0 and not Match.incident_active and wait <= 0.0:
+		actor.want_incident = true
+		wait = 12.0
 
 
 func _talk_here() -> Actor:

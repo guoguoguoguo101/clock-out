@@ -22,6 +22,21 @@ func tick(delta: float) -> void:
 	if actor.emp_state == Rules.EmpState.MEETING or actor.emp_state == Rules.EmpState.TALK:
 		actor.input_dir = Vector2.ZERO
 		return
+	# 事故期间，责任人 Bot 去修 Bug
+	if Match.incident_active and actor.is_blame_target and not actor.fixing:
+		_go(Match.incident_terminal_pos, delta)
+		if actor.global_position.distance_to(Match.incident_terminal_pos) < Rules.INTERACT_RANGE:
+			actor.want_interact = true
+		return
+	# 事故期间，非责任人有概率帮修
+	if Match.incident_active and not actor.is_blame_target and not actor.fixing and randf() < 0.003:
+		_go(Match.incident_terminal_pos, delta)
+		if actor.global_position.distance_to(Match.incident_terminal_pos) < Rules.INTERACT_RANGE:
+			actor.want_interact = true
+		return
+	if actor.fixing:
+		actor.input_dir = Vector2.ZERO
+		return
 	think -= delta
 	if actor.rescue_left > 0.0:
 		actor.input_dir = Vector2.ZERO

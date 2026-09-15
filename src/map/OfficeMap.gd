@@ -831,6 +831,19 @@ func _tick_notices() -> void:
 
 
 func _draw() -> void:
+	# 事故终端标记
+	if Match.incident_active:
+		var tp: Vector2 = Match.incident_terminal_pos
+		var pulse := 0.6 + 0.4 * absf(sin(flicker_t * 5.0))
+		draw_rect(Rect2(tp.x - 24, tp.y - 24, 48, 48), Color(0.92, 0.12, 0.08, 0.18 * pulse))
+		draw_rect(Rect2(tp.x - 20, tp.y - 20, 40, 40), Color(0.08, 0.16, 0.14, 0.92))
+		draw_rect(Rect2(tp.x - 18, tp.y - 18, 36, 36), Color(0.14, 0.82, 0.42, 0.85 * pulse))
+		draw_rect(Rect2(tp.x - 16, tp.y - 16, 32, 32), Color(0.04, 0.12, 0.08, 0.95))
+		# 十字线
+		draw_line(Vector2(tp.x, tp.y - 32), Vector2(tp.x, tp.y - 22), Color(1.0, 0.25, 0.18, 0.6 * pulse), 1.5)
+		draw_line(Vector2(tp.x, tp.y + 22), Vector2(tp.x, tp.y + 32), Color(1.0, 0.25, 0.18, 0.6 * pulse), 1.5)
+		draw_line(Vector2(tp.x - 32, tp.y), Vector2(tp.x - 22, tp.y), Color(1.0, 0.25, 0.18, 0.6 * pulse), 1.5)
+		draw_line(Vector2(tp.x + 22, tp.y), Vector2(tp.x + 32, tp.y), Color(1.0, 0.25, 0.18, 0.6 * pulse), 1.5)
 	for i in steam_at.size():
 		var origin: Vector2 = steam_at[i]
 		for k in 3:

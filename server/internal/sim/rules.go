@@ -58,6 +58,15 @@ const (
 	KPICD     = 75.0
 	KPIUnlock = 40.0
 
+	// 线上事故
+	IncidentCD       = 90.0
+	IncidentUnlock   = 90.0
+	IncidentDuration = 30.0
+	IncidentFixTime  = 8.0
+	IncidentFailHours = 20.0
+	IncidentBossSpeedMul = 1.25
+	IncidentBossRangeMul = 1.4
+
 	TigerSpeedMul  = 1.15
 	EmployeeSpeed  = 168.0
 	BossBaseSpeed  = 182.0

@@ -88,6 +88,13 @@ var fan_cd := 0.0
 var throw_flash := 0.0
 var match_elapsed := 0.0
 var kpi_flash := 0.0
+var incident_cd := 0.0
+var is_blame_target := false
+var blame_timer := 0.0
+var blame_slot := -1
+var fix_progress := 0.0
+var fixing := false
+var blamed_once := false
 
 var input_dir := Vector2.ZERO
 var want_interact := false
@@ -97,6 +104,8 @@ var want_kpi := false
 var want_dash := false
 var want_report := false
 var want_fan := false
+var want_incident := false
+var want_blame := false
 
 var _sync_acc := 0.0
 var _remote_pos := Vector2.ZERO
@@ -183,6 +192,19 @@ func nearby_action() -> String:
 		return "被拉去开会 · 救不了"
 	if stand_lock > 0.0:
 		return "刚复盘完 · 先站一会儿"
+	if fixing:
+		return "正在修 Bug…  %.0f%%" % (fix_progress * 100.0)
+	if Match.incident_active and is_blame_target:
+		var term_pos: Vector2 = Match.incident_terminal_pos
+		var d := global_position.distance_to(term_pos)
+		if d < Rules.INTERACT_RANGE + 20.0:
+			return "E 修 Bug    F 甩锅给附近同事"
+		return "⚠ 你是责任人 · 去终端修 Bug 或 F 甩锅"
+	if Match.incident_active and not is_blame_target:
+		var term_pos: Vector2 = Match.incident_terminal_pos
+		var d := global_position.distance_to(term_pos)
+		if d < Rules.INTERACT_RANGE + 20.0:
+			return "E 帮忙修 Bug · 缩短事故时间"
 	if _is_riding():
 		return "F 下车才能交互"
 	var map := office()
@@ -721,6 +743,8 @@ func _server_tick(delta: float) -> void:
 	throw_flash = max(0.0, throw_flash - delta)
 	kpi_flash = max(0.0, kpi_flash - delta)
 	play_lock = max(0.0, play_lock - delta)
+	incident_cd = max(0.0, incident_cd - delta)
+	blame_timer = max(0.0, blame_timer - delta)
 	if kind == Rules.Kind.EMPLOYEE:
 		_tick_cells(delta)
 	trade_cd = max(0.0, trade_cd - delta)
@@ -735,6 +759,8 @@ func _server_tick(delta: float) -> void:
 	want_dash = false
 	want_report = false
 	want_fan = false
+	want_incident = false
+	want_blame = false
 
 
 func _employee_tick(delta: float) -> void:
@@ -841,8 +867,17 @@ func _employee_tick(delta: float) -> void:
 			_tick_energy_play(delta)
 			return
 	# walk
+	if fixing:
+		velocity = Vector2.ZERO
+		if want_interact or input_dir.length() > 0.12:
+			fixing = false
+			fix_progress = 0.0
+		return
 	if want_slack:
 		_try_toggle_bike()
+	# 事故期间，责任人按 F 尝试甩锅给附近员工
+	if want_blame and is_blame_target and Match.incident_active:
+		Match.try_pass_blame(self)
 	if rescue_left > 0.0:
 		if input_dir.length() > 0.12:
 			clear_rescue()
@@ -906,6 +941,10 @@ func _try_employee_interact() -> void:
 	if _is_riding():
 		say("先 F 下车", 0.9)
 		return
+	# 事故期间，靠近事故终端按 E 修 Bug
+	if Match.incident_active and not fixing:
+		if Match.try_start_fix(self):
+			return
 	if Match.try_carry(self):
 		return
 	if Match.try_rescue(self):
@@ -1448,6 +1487,10 @@ func _boss_tick(delta: float) -> void:
 		if Match.try_throw_reports(self, true):
 			fan_cd = Rules.REPORT_FAN_CD
 			throw_flash = 0.16
+	if want_incident and incident_cd <= 0.0 and Match.elapsed >= Rules.INCIDENT_UNLOCK and not Match.incident_active:
+		if Match.cast_incident(self):
+			incident_cd = Rules.INCIDENT_CD
+			say(Rules.INCIDENT_BOSS_QUIPS[randi() % Rules.INCIDENT_BOSS_QUIPS.size()], 1.8)
 
 
 func _move_towards(target: Vector2, speed: float, delta: float) -> void:
@@ -1460,7 +1503,7 @@ func _move_towards(target: Vector2, speed: float, delta: float) -> void:
 	_facing = velocity.normalized()
 
 
-func apply_input(x: float, y: float, interact: bool, slack: bool, meeting: bool, kpi: bool, dash: bool, report := false, fan := false) -> void:
+func apply_input(x: float, y: float, interact: bool, slack: bool, meeting: bool, kpi: bool, dash: bool, report := false, fan := false, incident := false, blame := false) -> void:
 	input_dir = Vector2(x, y)
 	if interact:
 		want_interact = true
@@ -1476,15 +1519,19 @@ func apply_input(x: float, y: float, interact: bool, slack: bool, meeting: bool,
 		want_report = true
 	if fan:
 		want_fan = true
+	if incident:
+		want_incident = true
+	if blame:
+		want_blame = true
 
 
 @rpc("any_peer", "unreliable")
-func recv_input(x: float, y: float, interact: bool, slack: bool, meeting: bool, kpi: bool, dash: bool, report := false, fan := false) -> void:
+func recv_input(x: float, y: float, interact: bool, slack: bool, meeting: bool, kpi: bool, dash: bool, report := false, fan := false, incident := false, blame := false) -> void:
 	if not multiplayer.is_server():
 		return
 	if multiplayer.get_remote_sender_id() != peer_id:
 		return
-	apply_input(x, y, interact, slack, meeting, kpi, dash, report, fan)
+	apply_input(x, y, interact, slack, meeting, kpi, dash, report, fan, incident, blame)
 
 
 func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0, slow: float = 0.0, rcd: float = 0.0, fcd: float = 0.0) -> void:
@@ -1525,6 +1572,17 @@ func _show_resource_bars() -> bool:
 func _draw() -> void:
 	if carried_by >= 0:
 		return
+	# 事故责任人红色脉冲标记
+	if is_blame_target and Match.incident_active:
+		var pulse := 0.65 + 0.35 * (0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.008))
+		draw_circle(Vector2(0, -18), 58.0 * pulse, Color(0.95, 0.08, 0.06, 0.28 * pulse))
+		draw_arc(Vector2(0, -18), 62.0 * pulse, 0, TAU, 32, Color(1.0, 0.15, 0.10, 0.72), 2.8)
+	# 修 Bug 进度条
+	if fixing and fix_progress > 0.0:
+		var w := 48.0
+		var ty := -108.0
+		draw_rect(Rect2(-w * 0.5, ty, w, 6), Color(0.14, 0.14, 0.16, 0.9))
+		draw_rect(Rect2(-w * 0.5, ty, w * clampf(fix_progress, 0.0, 1.0), 6), Color(0.22, 0.88, 0.42))
 	if kind == Rules.Kind.EMPLOYEE and emp_state == Rules.EmpState.TALK:
 		var watched := Match.is_watched(self)
 		var pulse := 0.72 + 0.28 * (0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.006))

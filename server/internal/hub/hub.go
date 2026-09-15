@@ -219,6 +219,7 @@ func (h *Hub) dispatch(c *Client, msg protocol.Message) {
 		h.lobby.ApplyInput(c.Peer, sim.Input{
 			DX: msg.DX, DY: msg.DY, Interact: msg.Interact, Slack: msg.Slack,
 			Meeting: msg.Meeting, KPI: msg.KPI, Dash: msg.Dash,
+			Incident: msg.Incident, Blame: msg.Blame,
 		})
 	}
 }

@@ -11,6 +11,10 @@ signal caught(slot: int, repeat: bool, add_hours: float)
 signal talked(slot: int)
 signal rescued(slot: int, by_slot: int)
 signal stock_played(slot: int, pnl: float, energy_loss: float, boosted: bool)
+signal incident_started(blame_slot: int)
+signal incident_ended(fixed: bool, blame_slot: int)
+signal blame_passed(from_slot: int, to_slot: int)
+signal fix_completed(slot: int, is_assist: bool)
 
 var phase := "lobby"
 var playing := false
@@ -38,6 +42,19 @@ var world: Node2D
 var bots: Array = []
 var reports: Dictionary = {}
 var _next_report_id := 1
+var incident_active := false
+var incident_left := 0.0
+var incident_blame_slot := -1
+var incident_terminal_pos := Vector2.ZERO
+var incident_fixed := false
+var incident_assist_count := 0
+var _incident_terminal_spots := [
+	Vector2(1280, 670),
+	Vector2(280, 670),
+	Vector2(2100, 670),
+	Vector2(730, 1000),
+	Vector2(1100, 1000),
+]
 
 var _actor_scene: PackedScene = preload("res://src/actor/Actor.tscn")
 
@@ -62,9 +79,12 @@ func _process(delta: float) -> void:
 	elif phase == "playing":
 		elapsed += delta
 		time_left = max(0.0, time_left - delta)
+		if incident_active:
+			_tick_incident(delta)
 		for bot in bots:
 			bot.tick(delta)
 		_sync_clock.rpc(phase, elapsed, time_left, 0.0)
+		_sync_incident.rpc(incident_active, incident_left, incident_blame_slot, incident_terminal_pos.x, incident_terminal_pos.y)
 		hud_dirty.emit()
 		if time_left <= 0.0 or _all_punched():
 			_finish()
@@ -317,11 +337,27 @@ func _sync_clock(p_phase: String, p_elapsed: float, p_left: float, p_cd: float) 
 	hud_dirty.emit()
 
 
+@rpc("authority", "unreliable")
+func _sync_incident(active: bool, left: float, blame: int, tx: float, ty: float) -> void:
+	if multiplayer.is_server():
+		return
+	incident_active = active
+	incident_left = left
+	incident_blame_slot = blame
+	incident_terminal_pos = Vector2(tx, ty)
+	for a in actors.values():
+		var e := a as Actor
+		e.is_blame_target = (e.slot == blame and active)
+
+
 func is_supervised(emp: Actor) -> bool:
 	if not actors.has(Rules.Slot.BOSS):
 		return false
 	var boss: Actor = actors[Rules.Slot.BOSS]
-	if boss.global_position.distance_to(emp.global_position) <= Rules.SUPERVISE_DIST:
+	var dist := Rules.SUPERVISE_DIST
+	if incident_active:
+		dist *= Rules.INCIDENT_BOSS_RANGE_MUL
+	if boss.global_position.distance_to(emp.global_position) <= dist:
 		return true
 	var sid := emp.occupy_id
 	if sid == "" or not sid.begins_with("seat_"):
@@ -791,6 +827,218 @@ func show_kpi() -> void:
 	kpi_popup.emit()
 
 
+# ── 线上事故系统 ──────────────────────────────────────────────
+
+func cast_incident(boss: Actor) -> bool:
+	if incident_active:
+		return false
+	# 找进度最高的员工作为第一责任人
+	var best: Actor = null
+	var best_done := -1
+	for a in actors.values():
+		var e := a as Actor
+		if e.kind != Rules.Kind.EMPLOYEE:
+			continue
+		if e.emp_state == Rules.EmpState.LEFT or e.emp_state == Rules.EmpState.CLOCKING:
+			continue
+		if e.tasks_done > best_done:
+			best_done = e.tasks_done
+			best = e
+	if best == null:
+		return false
+	# 随机选一个事故终端位置
+	incident_terminal_pos = _incident_terminal_spots[randi() % _incident_terminal_spots.size()]
+	incident_active = true
+	incident_left = Rules.INCIDENT_DURATION
+	incident_blame_slot = best.slot
+	incident_fixed = false
+	incident_assist_count = 0
+	# 标记责任人
+	for a in actors.values():
+		var e := a as Actor
+		e.is_blame_target = (e.slot == best.slot)
+		e.fixing = false
+		e.fix_progress = 0.0
+		e.blamed_once = false
+	notify_incident_start.rpc(best.slot, incident_terminal_pos.x, incident_terminal_pos.y)
+	return true
+
+
+func _tick_incident(delta: float) -> void:
+	incident_left -= delta
+	# 帮修 Bug 的人会减少时长
+	# 检查正在修 Bug 的人
+	for a in actors.values():
+		var e := a as Actor
+		if not e.fixing:
+			continue
+		if e.kind != Rules.Kind.EMPLOYEE:
+			continue
+		if e.emp_state == Rules.EmpState.LEFT or e.emp_state == Rules.EmpState.TALK or e.emp_state == Rules.EmpState.MEETING:
+			e.fixing = false
+			e.fix_progress = 0.0
+			continue
+		# 检查是否还在终端附近
+		if e.global_position.distance_to(incident_terminal_pos) > Rules.INTERACT_RANGE + 40.0:
+			e.fixing = false
+			e.fix_progress = 0.0
+			continue
+		# 移动会中断修 Bug
+		if e.input_dir.length() > 0.12:
+			e.fixing = false
+			e.fix_progress = 0.0
+			continue
+		var fix_dur := Rules.INCIDENT_FIX_TIME if e.is_blame_target else Rules.INCIDENT_FIX_TIME * 0.6
+		e.fix_progress = minf(1.0, e.fix_progress + delta / fix_dur)
+		e.velocity = Vector2.ZERO
+		if e.fix_progress >= 1.0:
+			_complete_fix(e)
+			return
+	if incident_left <= 0.0:
+		_end_incident(false)
+
+
+func _complete_fix(fixer: Actor) -> void:
+	var is_assist := not fixer.is_blame_target
+	fixer.fixing = false
+	fixer.fix_progress = 0.0
+	if is_assist:
+		incident_assist_count += 1
+		# 帮修减少事故剩余时间
+		incident_left = maxf(0.0, incident_left - Rules.INCIDENT_ASSIST_REDUCE)
+		fixer.energy_cells = mini(Rules.ENERGY_CELLS, fixer.energy_cells + Rules.INCIDENT_FIX_ENERGY)
+		fixer._refresh_legacy()
+		fixer.say(Rules.INCIDENT_ASSIST_QUIPS[randi() % Rules.INCIDENT_ASSIST_QUIPS.size()], 1.3)
+		notify_fix_done.rpc(fixer.slot, true)
+		if incident_left <= 0.0:
+			_end_incident(true)
+	else:
+		# 责任人修完，事故直接结束
+		fixer.energy_cells = mini(Rules.ENERGY_CELLS, fixer.energy_cells + Rules.INCIDENT_FIX_ENERGY)
+		fixer._refresh_legacy()
+		fixer.say(Rules.INCIDENT_FIX_QUIPS[randi() % Rules.INCIDENT_FIX_QUIPS.size()], 1.5)
+		notify_fix_done.rpc(fixer.slot, false)
+		_end_incident(true)
+
+
+func _end_incident(fixed: bool) -> void:
+	incident_active = false
+	incident_fixed = fixed
+	if not fixed:
+		# 责任人未修复，惩罚
+		var blame_actor := actors.get(incident_blame_slot) as Actor
+		if blame_actor != null and blame_actor.emp_state != Rules.EmpState.LEFT:
+			blame_actor.lose_task()
+			blame_actor.lose_task()
+			blame_actor.stand_lock = maxf(blame_actor.stand_lock, 2.0)
+			blame_actor.say(Rules.INCIDENT_FAIL_QUIPS[randi() % Rules.INCIDENT_FAIL_QUIPS.size()], 1.5)
+	# 清理所有人状态
+	for a in actors.values():
+		var e := a as Actor
+		e.is_blame_target = false
+		e.fixing = false
+		e.fix_progress = 0.0
+	notify_incident_end.rpc(fixed, incident_blame_slot)
+	incident_blame_slot = -1
+	incident_left = 0.0
+
+
+func try_start_fix(emp: Actor) -> bool:
+	if not incident_active or emp.fixing:
+		return false
+	if emp.emp_state != Rules.EmpState.WALK:
+		return false
+	if emp.stand_lock > 0.0 or emp.carried_by >= 0:
+		return false
+	if emp.global_position.distance_to(incident_terminal_pos) > Rules.INTERACT_RANGE:
+		return false
+	emp._dismount_bike()
+	emp.fixing = true
+	emp.fix_progress = 0.0
+	emp.velocity = Vector2.ZERO
+	emp.say("开始排查…", 1.0)
+	return true
+
+
+func try_pass_blame(from: Actor) -> bool:
+	if not incident_active or not from.is_blame_target:
+		return false
+	# 找最近的可接锅员工
+	var best: Actor = null
+	var best_d := 120.0
+	for a in actors.values():
+		var e := a as Actor
+		if e == from or e.kind != Rules.Kind.EMPLOYEE:
+			continue
+		if e.emp_state == Rules.EmpState.LEFT or e.emp_state == Rules.EmpState.CLOCKING:
+			continue
+		if e.blamed_once:
+			continue
+		if e.emp_state == Rules.EmpState.TALK or e.emp_state == Rules.EmpState.MEETING:
+			continue
+		var d := from.global_position.distance_to(e.global_position)
+		if d < best_d:
+			best_d = d
+			best = e
+	if best == null:
+		from.say("附近没人能接锅", 0.9)
+		return false
+	# Boss 在场不能甩
+	if is_watched(from):
+		from.say("老板盯着，甩不掉", 0.9)
+		return false
+	# 甩锅成功
+	from.is_blame_target = false
+	from.blamed_once = true
+	best.is_blame_target = true
+	best.blamed_once = true
+	incident_blame_slot = best.slot
+	from.say(Rules.INCIDENT_PASS_QUIPS[randi() % Rules.INCIDENT_PASS_QUIPS.size()], 1.3)
+	best.say(Rules.INCIDENT_BLAME_QUIPS[randi() % Rules.INCIDENT_BLAME_QUIPS.size()], 1.3)
+	notify_blame_pass.rpc(from.slot, best.slot)
+	return true
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_incident_start(blame_slot: int, tx: float, ty: float) -> void:
+	incident_active = true
+	incident_blame_slot = blame_slot
+	incident_terminal_pos = Vector2(tx, ty)
+	incident_left = Rules.INCIDENT_DURATION
+	for a in actors.values():
+		var e := a as Actor
+		e.is_blame_target = (e.slot == blame_slot)
+		e.fixing = false
+		e.fix_progress = 0.0
+	incident_started.emit(blame_slot)
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_incident_end(fixed: bool, blame_slot: int) -> void:
+	incident_active = false
+	for a in actors.values():
+		var e := a as Actor
+		e.is_blame_target = false
+		e.fixing = false
+		e.fix_progress = 0.0
+	incident_ended.emit(fixed, blame_slot)
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_blame_pass(from_slot: int, to_slot: int) -> void:
+	if actors.has(from_slot):
+		(actors[from_slot] as Actor).is_blame_target = false
+	if actors.has(to_slot):
+		(actors[to_slot] as Actor).is_blame_target = true
+	incident_blame_slot = to_slot
+	blame_passed.emit(from_slot, to_slot)
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_fix_done(slot: int, is_assist: bool) -> void:
+	fix_completed.emit(slot, is_assist)
+
+
 func on_clock_out(slot: int) -> void:
 	clock_log[slot] = elapsed
 	if _all_punched():
@@ -982,6 +1230,12 @@ func apply_go_snapshot(snap: Dictionary) -> void:
 		var doors: Array = snap.get("doors", [])
 		for d in doors:
 			office._sync_door(str(d.get("id", "")), bool(d.get("closed", false)), bool(d.get("opening", false)), float(d.get("open_left", 0.0)))
+	# 事故状态同步
+	var was_active := incident_active
+	incident_active = bool(snap.get("incident_active", false))
+	incident_left = float(snap.get("incident_left", 0.0))
+	incident_blame_slot = int(snap.get("incident_blame", -1))
+	incident_terminal_pos = Vector2(float(snap.get("incident_x", 0.0)), float(snap.get("incident_y", 0.0)))
 	var list: Array = snap.get("actors", [])
 	for item in list:
 		_ingest_go_actor(item)
@@ -1004,6 +1258,14 @@ func apply_go_event(ev: Dictionary) -> void:
 			rescued.emit(int(ev.get("slot", -1)), int(ev.get("by_slot", -1)))
 		"kpi":
 			kpi_popup.emit()
+		"incident_start":
+			notify_incident_start(int(ev.get("slot", -1)), float(ev.get("x", 0.0)), float(ev.get("y", 0.0)))
+		"incident_end":
+			notify_incident_end(bool(ev.get("on", false)), int(ev.get("slot", -1)))
+		"blame_pass":
+			notify_blame_pass(int(ev.get("from", -1)), int(ev.get("to", -1)))
+		"fix_done":
+			notify_fix_done(int(ev.get("slot", -1)), bool(ev.get("on", false)))
 		"result":
 			result = ev.get("result", {})
 			playing = false
