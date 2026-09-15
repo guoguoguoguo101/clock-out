@@ -18,18 +18,29 @@ func TestWorkHoursRate(t *testing.T) {
 	}
 }
 
-func TestSlackSupervisedBecomesTalk(t *testing.T) {
+func TestLungeGrabsWalking(t *testing.T) {
 	m := NewMatch()
 	m.Slots[SlotEmpA] = 1
 	m.Slots[SlotBoss] = 2
 	m.Start(true, true)
 	emp := m.Actors[SlotEmpA]
 	boss := m.Actors[SlotBoss]
-	boss.Pos = emp.Pos
-	emp.State = StateSlack
-	emp.sitWork(m, SlackCatchDelay, true)
+	emp.standUp(m)
+	emp.Pos = m.Office.Points["corridor"]
+	boss.Pos = emp.Pos.Add(Vec{-20, 0})
+	boss.Facing = Vec{1, 0}
+	if !m.StartLunge(boss) {
+		t.Fatal("start lunge")
+	}
+	if m.LungeVictim(boss, boss.Pos, emp.Pos) != emp {
+		t.Fatal("expected lunge hit")
+	}
+	m.GrabLunge(boss, emp)
 	if emp.State != StateTalk {
 		t.Fatalf("state %d want talk", emp.State)
+	}
+	if boss.PowerPips != 1 {
+		t.Fatalf("power %d", boss.PowerPips)
 	}
 }
 

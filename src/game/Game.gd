@@ -27,6 +27,7 @@ var energy_play
 var time_label: Label
 var state_label: Label
 var you_role: Label
+var power_pips_ui: Array = []
 var prompt_label: Label
 var lamps: HBoxContainer
 var you_label: Label
@@ -173,7 +174,7 @@ func _build_ui() -> void:
 	var card := ColorRect.new()
 	card.color = Color(0.12, 0.14, 0.16, 0.78)
 	card.position = Vector2(18, 16)
-	card.size = Vector2(168, 92)
+	card.size = Vector2(168, 112)
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(card)
 	you_role = Label.new()
@@ -197,8 +198,17 @@ func _build_ui() -> void:
 	state_label.add_theme_font_size_override("font_size", 11)
 	state_label.add_theme_color_override("font_color", Color(0.70, 0.76, 0.80))
 	card.add_child(state_label)
+	for i in 3:
+		var pip := TextureRect.new()
+		pip.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pip.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		pip.position = Vector2(14 + i * 22, 90)
+		pip.size = Vector2(20, 20)
+		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(pip)
+		power_pips_ui.append(pip)
 	hours_bar = CellMeterScript.new()
-	hours_bar.position = Vector2(18, 112)
+	hours_bar.position = Vector2(18, 118)
 	hours_bar.setup("任务", "task", Rules.TASK_COUNT)
 	hud.add_child(hours_bar)
 	energy_bar = CellMeterScript.new()
@@ -1515,7 +1525,7 @@ func _on_talked(slot: int) -> void:
 		_cam_punch = 0.22
 	elif not _same_view_as(vic):
 		var where := office.room_title(vic.global_position) if vic and office else ""
-		_flash_banner("%s 被约谈 · %s" % [who, where], Color(0.72, 0.28, 0.18), 1.3)
+		_flash_banner("%s 被扑倒复盘 · %s" % [who, where], Color(0.72, 0.28, 0.18), 1.3)
 
 
 func _on_rescued(slot: int, by_slot: int) -> void:
@@ -1738,7 +1748,9 @@ func _refresh_hud() -> void:
 		energy_bar.set_cells(actor.energy_cells, actor.energy_charge, en_extra)
 		var st := str(Rules.STATE_NAMES.get(actor.emp_state, ""))
 		if actor.emp_state == Rules.EmpState.TALK:
-			st = "约谈中 · 督导中" if Match.is_watched(actor) else "约谈中 · 可捞"
+			st = "复盘中 · 可捞"
+		elif actor.emp_state == Rules.EmpState.MEETING:
+			st = "开会中 · 可捞"
 		if actor.slow_left > 0.05:
 			st += "  被周报压住 %.0fs" % actor.slow_left
 		if actor.dash_cd > 0.05:
@@ -1747,7 +1759,9 @@ func _refresh_hud() -> void:
 			st += "  冲刺就绪"
 		state_label.text = st
 		if actor.emp_state == Rules.EmpState.TALK:
-			hint_label.text = "约谈中 · 等同事捞人    老板在这间屋就捞不走"
+			hint_label.text = "复盘中 · 同事贴着 E 捞 2.5 秒    老板在也能救"
+		elif actor.emp_state == Rules.EmpState.MEETING:
+			hint_label.text = "被拉去开会 30 秒    同事开门进来贴着 E 捞 2.5 秒"
 		elif actor.emp_state == Rules.EmpState.TRADE:
 			hint_label.text = "赚了 +1 精力、开工加速、全员加速    亏了不扣    页面发红就是老板近了    F 买/卖    E 撤"
 		elif actor.emp_state == Rules.EmpState.WORK or actor.emp_state == Rules.EmpState.SLACK:
@@ -1764,10 +1778,24 @@ func _refresh_hud() -> void:
 		else:
 			hint_label.text = "先找精力：茶水间手冲、饮水机、零食、翻抽屉    E 坐下后还要再确认开工    Shift 冲刺"
 	elif actor != null and actor.kind == Rules.Kind.BOSS:
-		you_role.text = "工牌 · 老板"
+		you_role.text = "工牌 · 老虎"
+		var stun := ""
+		if actor.lunge_stun > 0.05:
+			stun = "  硬直 %.1fs" % actor.lunge_stun
 		var inc_txt := "事故 %.0fs" % actor.incident_cd if actor.incident_cd > 0.05 else ("事故进行中 %.0fs" % Match.incident_left if Match.incident_active else "事故就绪")
-		state_label.text = "开会 %.0fs  KPI %.0fs  %s  冲刺 %.0fs  周报 %.0fs  扇形 %.0fs" % [actor.meeting_cd, actor.kpi_cd, inc_txt, actor.dash_cd, actor.report_cd, actor.fan_cd]
-		hint_label.text = "E 约谈 / 开门    F 扔周报    G 扇形周报    Q 开会    R KPI    T 线上事故    Shift 冲刺"
+		state_label.text = "势力 %d/3%s    周报 %.0fs  扇形 %.0fs  KPI %.0fs  %s  冲刺 %.0fs" % [actor.power_pips, stun, actor.report_cd, actor.fan_cd, actor.kpi_cd, inc_txt, actor.dash_cd]
+		if actor.power_pips >= Rules.TIGER_POWER_MAX:
+			hint_label.text = "Q 开会拉人 30 秒    空格短扑    F 扔周报    G 扇形周报    R KPI    T 线上事故    Shift 冲刺"
+		else:
+			hint_label.text = "空格短扑攒势力    F 扔周报    G 扇形    R KPI    T 事故    Shift 冲刺    满 3 格才 Q"
+	for i in power_pips_ui.size():
+		var pip: TextureRect = power_pips_ui[i]
+		var show_pips := actor != null and actor.kind == Rules.Kind.BOSS
+		pip.visible = show_pips
+		if show_pips:
+			var on := i < actor.power_pips
+			pip.texture = Rules.tex(Rules.UI_POWER_ON if on else Rules.UI_POWER_OFF)
+			pip.modulate = Color.WHITE if on else Color(1, 1, 1, 0.55)
 	hint_label.modulate.a = clampf(_help_t / 2.0, 0.0, 1.0)
 	_refresh_lamps()
 
@@ -1796,7 +1824,10 @@ func _refresh_lamps() -> void:
 			elif e.emp_state == Rules.EmpState.TALK:
 				c = Color(0.32, 0.08, 0.08, 0.95)
 				snow_a = 0.18
-				lab.text = "救命"
+				lab.text = "复盘"
+			elif e.emp_state == Rules.EmpState.MEETING:
+				c = Color(0.42, 0.08, 0.08, 0.95)
+				lab.text = "开会"
 			elif e.emp_state == Rules.EmpState.SLACK:
 				c = Color(0.28, 0.20, 0.08, 0.9)
 			elif e.emp_state == Rules.EmpState.TRADE:

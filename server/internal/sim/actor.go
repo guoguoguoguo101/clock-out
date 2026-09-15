@@ -46,6 +46,10 @@ type Actor struct {
 	KPICD       float64
 	DashCD      float64
 	DashLeft    float64
+	LungeLeft   float64
+	LungeStun   float64
+	LungeHit    bool
+	PowerPips   int
 	KPIFlash    float64
 	IncidentCD  float64
 	IsBlameTarget bool
@@ -122,6 +126,7 @@ func (a *Actor) Tick(m *Match, dt float64) {
 	a.IncidentCD = maxf(0, a.IncidentCD-dt)
 	a.DashCD = maxf(0, a.DashCD-dt)
 	a.DashLeft = maxf(0, a.DashLeft-dt)
+	a.LungeStun = maxf(0, a.LungeStun-dt)
 	a.KPIFlash = maxf(0, a.KPIFlash-dt)
 	if a.Kind == KindBoss {
 		a.bossTick(m, dt)
@@ -172,7 +177,7 @@ func (a *Actor) employeeTick(m *Match, dt float64) {
 		a.Vel = Vec{}
 		return
 	}
-	if a.Hours <= 0 && a.State != StateClocking && a.State != StateTalk {
+	if a.Hours <= 0 && a.State != StateClocking && a.State != StateTalk && a.State != StateMeeting {
 		a.beginClocking(m)
 	}
 	switch a.State {
@@ -181,10 +186,9 @@ func (a *Actor) employeeTick(m *Match, dt float64) {
 		return
 	case StateMeeting:
 		a.MeetingLeft -= dt
-		a.Energy = maxf(0, a.Energy-MeetingEnergyPerSec*dt)
 		a.Vel = Vec{}
 		if a.MeetingLeft <= 0 {
-			a.State = StateWalk
+			m.FinishMeeting(a)
 		}
 		return
 	case StateClocking:
@@ -292,9 +296,6 @@ func (a *Actor) sitWork(m *Match, dt float64, slack bool) {
 		a.Energy = minf(EnergyMax, a.Energy+SlackEnergyPerSec*dt)
 		if sup {
 			a.SlackSeen += dt
-			if a.SlackSeen >= SlackCatchDelay {
-				m.CatchEmployee(a)
-			}
 		} else {
 			a.SlackSeen = 0
 		}
@@ -393,11 +394,7 @@ func (a *Actor) clockOut(m *Match) {
 
 func (a *Actor) tickTalk(m *Match, dt float64) {
 	a.Vel = Vec{}
-	dur := TalkAloneTime
-	if m.IsWatched(a) {
-		dur = TalkWatchTime
-	}
-	a.TalkProg = minf(1, a.TalkProg+dt/dur)
+	a.TalkProg = minf(1, a.TalkProg+dt/TalkTime)
 	if a.TalkProg >= 1 {
 		m.FinishTalk(a)
 	}
@@ -413,8 +410,13 @@ func (a *Actor) BeginTalk(m *Match) {
 }
 
 func (a *Actor) EndTalkRescued() {
+	a.EndHoldRescued()
+}
+
+func (a *Actor) EndHoldRescued() {
 	a.State = StateWalk
 	a.TalkProg = 0
+	a.MeetingLeft = 0
 	a.SlackSeen = 0
 }
 
@@ -427,19 +429,20 @@ func (a *Actor) ApplyCatch(m *Match, repeat bool) {
 	if a.State == StateClocking || a.State == StateLeft {
 		return
 	}
-	add := CatchHoursFirst
-	if repeat {
-		add = CatchHoursRepeat
-	}
 	a.dismountBike(m)
 	a.standUp(m)
-	a.Hours += add
-	a.StandLock = CatchStandLock
 	a.CatchChain = CatchChainWindow
 	a.SlackSeen = 0
 	a.TalkProg = 0
 	a.RescueLeft = 0
 	a.RescueSlot = -1
+}
+
+func (a *Actor) ApplyMeetingFail(m *Match) {
+	a.dismountBike(m)
+	a.standUp(m)
+	a.MeetingLeft = 0
+	a.TalkProg = 0
 }
 
 func (a *Actor) SendToMeeting(m *Match, seconds float64, pos Vec) {
@@ -457,11 +460,33 @@ func (a *Actor) SendToMeeting(m *Match, seconds float64, pos Vec) {
 }
 
 func (a *Actor) bossTick(m *Match, dt float64) {
+	if a.LungeStun > 0 {
+		a.Vel = Vec{}
+		return
+	}
+	if a.LungeLeft > 0 {
+		prev := a.Pos
+		dir := a.Facing
+		if dir.Len() < 0.12 {
+			dir = Vec{0, 1}
+		}
+		a.Vel = dir.Normalized().Mul(TigerLungeSpeed)
+		a.slide(m, dt)
+		if vic := m.LungeVictim(a, prev, a.Pos); vic != nil {
+			m.GrabLunge(a, vic)
+			return
+		}
+		a.LungeLeft -= dt
+		if a.LungeLeft <= 0 {
+			m.MissLunge(a)
+		}
+		return
+	}
 	speed := BossBaseSpeed * TigerSpeedMul
 	if a.DashLeft > 0 {
 		speed = TigerDashSpeed
 	}
-	if a.WantDash && a.DashCD <= 0 {
+	if a.WantDash && a.DashCD <= 0 && a.LungeStun <= 0 {
 		a.DashLeft = TigerDashTime
 		a.DashCD = TigerDashCD
 	}
@@ -469,21 +494,19 @@ func (a *Actor) bossTick(m *Match, dt float64) {
 	a.slide(m, dt)
 	if a.Vel.Len() > 8 {
 		a.Facing = a.Vel.Normalized()
+	} else if a.In.Len() > 0.12 {
+		a.Facing = a.In.Normalized()
 	}
 	if a.WantInteract {
 		m.TryGrabDelivery(a.Slot)
-		if !m.TryCatch(a) {
-			m.Office.TryDoor(a.Kind, a.Pos)
-		}
+		m.StartLunge(a)
 	}
 	stuck := m.Office.NearestDoor(a.Pos, 52)
 	if stuck != nil && stuck.Closed {
 		m.Office.TryDoor(a.Kind, a.Pos)
 	}
-	if a.WantMeeting && a.MeetingCD <= 0 {
-		if m.TryMeeting(a) {
-			a.MeetingCD = TigerMeetingCD
-		}
+	if a.WantMeeting {
+		m.TryMeeting(a)
 	}
 	if a.WantKPI && a.KPICD <= 0 && m.Elapsed >= KPIUnlock {
 		m.CastKPI()

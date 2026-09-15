@@ -37,24 +37,37 @@ const SLACK_CATCH_DELAY := 1.2
 
 const CATCH_HOURS_FIRST := 12.0
 const CATCH_HOURS_REPEAT := 18.0
-const CATCH_STAND_LOCK := 3.0
+const CATCH_STAND_LOCK := 0.0
 const CATCH_CHAIN_WINDOW := 12.0
 const CATCH_RANGE := 70.0
 const TIGER_CATCH_RANGE := 70.0
 
-const TALK_WATCH_TIME := 5.0
+const TALK_TIME := 10.0
+const TALK_WATCH_TIME := 10.0
 const TALK_ALONE_TIME := 10.0
-const RESCUE_TIME := 1.2
+const RESCUE_TIME := 2.5
 const RESCUE_RANGE := 72.0
-const RESCUE_BOOST_TIME := 1.6
-const RESCUE_BOOST_MUL := 1.28
+const RESCUE_BOOST_TIME := 0.0
+const RESCUE_BOOST_MUL := 1.0
+const RESCUE_SLOW_TIME := 2.0
 
 const TALK_QUIPS := ["来，对对齐颗粒度", "这个产出我们展开讲讲", "你这周的交付呢", "先写个复盘吧"]
 
-const MEETING_TIME := 9.0
+const MEETING_TIME := 30.0
 const MEETING_CD := 18.0
-const TIGER_MEETING_TIME := 9.0
-const TIGER_MEETING_CD := 22.0
+const TIGER_MEETING_TIME := 30.0
+const TIGER_MEETING_CD := 0.0
+const TIGER_MEETING_RANGE := 420.0
+const TIGER_MEETING_CONE := 55.0
+const TIGER_POWER_MAX := 3
+
+const TIGER_LUNGE_TIME := 0.32
+const TIGER_LUNGE_SPEED := 320.0
+const TIGER_LUNGE_RADIUS := 46.0
+const TIGER_LUNGE_MISS_STUN := 1.5
+const TIGER_LUNGE_HIT_STUN := 0.4
+const TIGER_THROW_POSE := 0.32
+const TIGER_ULT_POSE := 0.48
 
 const KPI_HOURS := 10.0
 const KPI_CD := 75.0
@@ -66,6 +79,13 @@ const BOSS_BASE_SPEED := 182.0
 const TIGER_DASH_CD := 12.0
 const TIGER_DASH_TIME := 0.28
 const TIGER_DASH_SPEED := 420.0
+const FX_CLAW := "res://assets/game/fx/tiger_claw.png"
+const FX_LUNGE := "res://assets/game/fx/tiger_lunge_arc.png"
+const FX_STAMP := "res://assets/game/fx/talk_stamp.png"
+const FX_MEETING := "res://assets/game/fx/meeting_ult.png"
+const FX_LOCK_RING := "res://assets/game/fx/meeting_lock_ring.png"
+const UI_POWER_ON := "res://assets/game/ui/power_pip_on.png"
+const UI_POWER_OFF := "res://assets/game/ui/power_pip_off.png"
 const EMP_DASH_CD := 8.0
 const EMP_DASH_TIME := 0.28
 const EMP_DASH_SPEED := 360.0
@@ -191,6 +211,7 @@ const SCARF_FOR_SKIN := {
 	CharSkin.PELICAN: Color("7B5CFF"),
 	CharSkin.KANGAROO: Color("FF9A1A"),
 	CharSkin.DOG: Color("E1251B"),
+	CharSkin.TIGER: Color("E02020"),
 }
 
 const BIKE_COLOR_FOR_SKIN := {
@@ -203,10 +224,10 @@ const STATE_NAMES := {
 	EmpState.SLACK: "摸鱼",
 	EmpState.COFFEE: "续命",
 	EmpState.TOILET: "暂时离线",
-	EmpState.MEETING: "被拉去开会",
+	EmpState.MEETING: "开会中",
 	EmpState.CLOCKING: "润了",
 	EmpState.LEFT: "已下班",
-	EmpState.TALK: "约谈中",
+	EmpState.TALK: "复盘中",
 	EmpState.CARRIED: "顺风嘴 · 搭乘中",
 	EmpState.TRADE: "盘中",
 }

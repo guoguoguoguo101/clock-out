@@ -83,9 +83,14 @@ var kpi_cd := 0.0
 var dash_cd := 0.0
 var dash_left := 0.0
 var dash_dir := Vector2.DOWN
+var lunge_left := 0.0
+var lunge_stun := 0.0
+var lunge_hit := false
+var power_pips := 0
 var report_cd := 0.0
 var fan_cd := 0.0
 var throw_flash := 0.0
+var ult_flash := 0.0
 var match_elapsed := 0.0
 var kpi_flash := 0.0
 var incident_cd := 0.0
@@ -164,11 +169,9 @@ func nearby_action() -> String:
 		if passenger != null:
 			return "E 接活水「%s」" % passenger.display_name
 	if emp_state == Rules.EmpState.TALK:
-		if Match.is_watched(self):
-			return "约谈中 · 老板盯着，捞不走"
-		return "约谈中 · 等同事捞人"
+		return "复盘中 · 同事 E 捞人 2.5 秒"
 	if rescue_left > 0.0:
-		return "正在捞人…"
+		return "正在捞人… 别走"
 	if emp_state == Rules.EmpState.WORK or emp_state == Rules.EmpState.SLACK:
 		if tasking:
 			return "正在写%s · WASD 会作废    %.0f%%" % [Rules.task_name(tasks_done), task_progress * 100.0]
@@ -190,7 +193,7 @@ func nearby_action() -> String:
 	if emp_state == Rules.EmpState.CLOCKING:
 		return "润了 · 去打卡"
 	if emp_state == Rules.EmpState.MEETING:
-		return "被拉去开会 · 救不了"
+		return "开会中 · 冲进会议室 E 捞人 2.5 秒"
 	if stand_lock > 0.0:
 		return "刚复盘完 · 先站一会儿"
 	if fixing:
@@ -218,11 +221,11 @@ func nearby_action() -> String:
 	var door = map.nearest_door(global_position, Rules.DOOR_RANGE)
 	if door != null:
 		return door.prompt_text(kind)
-	var talk := Match.nearest_talk(global_position, Rules.RESCUE_RANGE)
-	if talk != null:
-		if Match.is_watched(talk):
-			return "老板盯着 · 捞不走"
-		return "E 捞人"
+	var hold := Match.nearest_hold(global_position, Rules.RESCUE_RANGE)
+	if hold != null:
+		if hold.emp_state == Rules.EmpState.MEETING:
+			return "E 冲进去捞人（2.5 秒）"
+		return "E 捞人（2.5 秒）"
 	var seat := map.nearest_spot("seat", global_position, Rules.INTERACT_RANGE)
 	if seat != "":
 		var who: int = map.occupiers.get(seat, -1)
@@ -254,23 +257,27 @@ func nearby_action() -> String:
 
 
 func _boss_nearby_action() -> String:
-	var talk := Match.nearest_talk(global_position, 220.0)
-	if talk != null and Match.is_watched(talk):
-		return "现场督导中 · 复盘加速"
+	if lunge_stun > 0.05:
+		return "扑空硬直 %.1fs" % lunge_stun
+	if lunge_left > 0.0:
+		return "短扑中"
+	if power_pips >= Rules.TIGER_POWER_MAX:
+		var mark: Actor = Match.meeting_target(self)
+		if mark != null:
+			return "Q 开会 · 拉「%s」进会议室 30 秒" % mark.display_name
+		return "Q 开会就绪 · 面向员工"
 	for a in Match.actors.values():
 		var e := a as Actor
-		if not Match.is_catchable(e):
+		if not Match.is_lunge_target(e):
 			continue
-		if global_position.distance_to(e.global_position) <= Rules.CATCH_RANGE:
-			if e.rescue_left > 0.0:
-				return "E 约谈（捞人的也别跑）"
-			return "E 约谈"
+		if global_position.distance_to(e.global_position) <= 140.0:
+			return "E 短扑抓人    势力 %d/3" % power_pips
 	var map := office()
 	if map:
 		var door = map.nearest_door(global_position, Rules.DOOR_RANGE)
 		if door != null:
 			return door.prompt_text(kind)
-	return ""
+	return "E 短扑    势力 %d/3" % power_pips
 
 
 func remaining_work_sec() -> float:
@@ -371,11 +378,6 @@ func say(text: String, hold := 1.7) -> void:
 func _apply_scarf() -> void:
 	if body_sprite == null:
 		return
-	if kind != Rules.Kind.EMPLOYEE:
-		body_sprite.material = null
-		if scarf_sprite:
-			scarf_sprite.visible = false
-		return
 	if Kit.has_scarf_layer(skin):
 		if Rules.BODY_FOR_SKIN.has(skin):
 			var body_mat := ShaderMaterial.new()
@@ -384,6 +386,11 @@ func _apply_scarf() -> void:
 			body_sprite.material = body_mat
 		else:
 			body_sprite.material = null
+		return
+	if kind != Rules.Kind.EMPLOYEE:
+		body_sprite.material = null
+		if scarf_sprite:
+			scarf_sprite.visible = false
 		return
 	var mat := ShaderMaterial.new()
 	mat.shader = SCARF_SHADER
@@ -394,7 +401,7 @@ func _apply_scarf() -> void:
 func _sync_scarf(pose: String) -> void:
 	if scarf_sprite == null:
 		return
-	if kind != Rules.Kind.EMPLOYEE or not Kit.has_scarf_layer(skin) or pose.begins_with("trade"):
+	if not Kit.has_scarf_layer(skin) or pose.begins_with("trade"):
 		scarf_sprite.visible = false
 		return
 	var tex: Texture2D = Kit.scarf_tex(skin, pose)
@@ -487,8 +494,12 @@ func _update_visual(delta := 0.0) -> void:
 	if zzz_label:
 		if emp_state == Rules.EmpState.TALK:
 			zzz_label.visible = true
-			zzz_label.text = "复盘中" if Match.is_watched(self) else "救命"
+			zzz_label.text = "复盘"
 			zzz_label.add_theme_color_override("font_color", Color(0.92, 0.18, 0.14))
+		elif emp_state == Rules.EmpState.MEETING:
+			zzz_label.visible = true
+			zzz_label.text = "开会"
+			zzz_label.add_theme_color_override("font_color", Color(0.92, 0.22, 0.16))
 		elif emp_state == Rules.EmpState.CLOCKING:
 			zzz_label.visible = true
 			zzz_label.text = "润"
@@ -519,6 +530,7 @@ func _update_visual(delta := 0.0) -> void:
 
 func _anim_pose() -> String:
 	var anim := "idle"
+	var shot := -1
 	match emp_state:
 		Rules.EmpState.WORK:
 			anim = "work"
@@ -537,13 +549,37 @@ func _anim_pose() -> String:
 		Rules.EmpState.CLOCKING:
 			anim = "ride" if _is_riding() else "run"
 		_:
-			if _is_riding():
+			if kind == Rules.Kind.BOSS and lunge_left > 0.0:
+				anim = "lunge"
+			elif kind == Rules.Kind.BOSS and throw_flash > 0.0:
+				anim = "throw"
+			elif kind == Rules.Kind.BOSS and ult_flash > 0.0:
+				anim = "ult"
+			elif kind == Rules.Kind.BOSS and dash_left > 0.0:
+				anim = "run"
+			elif kind == Rules.Kind.BOSS and lunge_stun > 0.0 and lunge_hit:
+				anim = "lunge"
+				shot = 3
+			elif kind == Rules.Kind.BOSS and lunge_stun > 0.0:
+				anim = "idle"
+			elif _is_riding():
 				anim = "ride"
 			elif velocity.length() > 24.0:
 				anim = "run" if dash_left > 0.0 else "walk"
 			else:
 				anim = "idle"
 	var frames: PackedStringArray = Kit.loop_frames(anim)
+	if anim == "lunge" and lunge_left > 0.0:
+		var t := 1.0 - clampf(lunge_left / Rules.TIGER_LUNGE_TIME, 0.0, 1.0)
+		shot = mini(int(t * frames.size()), frames.size() - 1)
+	elif anim == "throw" and throw_flash > 0.0:
+		var t := 1.0 - clampf(throw_flash / Rules.TIGER_THROW_POSE, 0.0, 1.0)
+		shot = mini(int(t * frames.size()), frames.size() - 1)
+	elif anim == "ult" and ult_flash > 0.0:
+		var t := 1.0 - clampf(ult_flash / Rules.TIGER_ULT_POSE, 0.0, 1.0)
+		shot = mini(int(t * frames.size()), frames.size() - 1)
+	if shot >= 0:
+		return frames[shot]
 	var fps := 10.0 if anim == "run" else (8.0 if anim == "walk" else 5.0)
 	if dash_left > 0.0 and anim == "run":
 		fps = 16.0
@@ -666,7 +702,7 @@ func _update_hold() -> void:
 		hold_sprite.position = hand
 		hold_sprite.scale = Vector2(0.022, 0.022)
 		hold_sprite.rotation = 0.18 * (1.0 if hand.x >= 0.0 else -1.0)
-		hold_sprite.modulate = Color(1, 1, 1, clampf(throw_flash / 0.16, 0.0, 1.0))
+		hold_sprite.modulate = Color(1, 1, 1, clampf(throw_flash / Rules.TIGER_THROW_POSE, 0.0, 1.0))
 	elif slow_left > 0.0:
 		hold_sprite.texture = Rules.tex("res://assets/game/props/reports/weekly.png")
 		hold_sprite.region_enabled = false
@@ -733,6 +769,7 @@ func _physics_process(delta: float) -> void:
 func _server_tick(delta: float) -> void:
 	carry_recovery = maxf(0.0, carry_recovery - delta)
 	bike_cd = maxf(0.0, bike_cd - delta)
+	lunge_stun = maxf(0.0, lunge_stun - delta)
 	stand_lock = max(0.0, stand_lock - delta)
 	catch_chain = max(0.0, catch_chain - delta)
 	coffee_buff = max(0.0, coffee_buff - delta)
@@ -746,6 +783,7 @@ func _server_tick(delta: float) -> void:
 	report_cd = max(0.0, report_cd - delta)
 	fan_cd = max(0.0, fan_cd - delta)
 	throw_flash = max(0.0, throw_flash - delta)
+	ult_flash = max(0.0, ult_flash - delta)
 	kpi_flash = max(0.0, kpi_flash - delta)
 	play_lock = max(0.0, play_lock - delta)
 	incident_cd = max(0.0, incident_cd - delta)
@@ -800,7 +838,7 @@ func _employee_tick(delta: float) -> void:
 		visible = false
 		velocity = Vector2.ZERO
 		return
-	if hours <= 0.0 and emp_state != Rules.EmpState.CLOCKING and emp_state != Rules.EmpState.TALK and emp_state != Rules.EmpState.TRADE:
+	if hours <= 0.0 and emp_state != Rules.EmpState.CLOCKING and emp_state != Rules.EmpState.TALK and emp_state != Rules.EmpState.TRADE and emp_state != Rules.EmpState.MEETING:
 		_begin_clocking()
 	if play_kind != "" and emp_state != Rules.EmpState.TALK and emp_state != Rules.EmpState.MEETING and emp_state != Rules.EmpState.CARRIED:
 		_tick_energy_play(delta)
@@ -816,7 +854,7 @@ func _employee_tick(delta: float) -> void:
 			meeting_left -= delta
 			velocity = Vector2.ZERO
 			if meeting_left <= 0.0:
-				emp_state = Rules.EmpState.WALK
+				Match.finish_meeting(self)
 			return
 		Rules.EmpState.CLOCKING:
 			if want_slack:
@@ -921,8 +959,6 @@ func _sit_work(delta: float, slack: bool) -> void:
 	if slack:
 		if supervised:
 			slack_seen += delta
-			if slack_seen >= Rules.SLACK_CATCH_DELAY:
-				Match.catch_employee(self)
 		else:
 			slack_seen = 0.0
 		return
@@ -1156,8 +1192,6 @@ func _tick_energy_play(delta: float) -> void:
 				_resolve_timing()
 	if Match.is_supervised(self) and (emp_state == Rules.EmpState.COFFEE or emp_state == Rules.EmpState.TOILET):
 		slack_seen += delta
-		if slack_seen >= Rules.SLACK_CATCH_DELAY + 0.4:
-			Match.catch_employee(self)
 
 
 func _resolve_timing() -> void:
@@ -1348,9 +1382,7 @@ func _clock_out() -> void:
 
 func _tick_talk(delta: float) -> void:
 	velocity = Vector2.ZERO
-	var watched := Match.is_watched(self)
-	var dur := Rules.TALK_WATCH_TIME if watched else Rules.TALK_ALONE_TIME
-	talk_progress = min(1.0, talk_progress + delta / dur)
+	talk_progress = min(1.0, talk_progress + delta / Rules.TALK_TIME)
 	if talk_progress >= 1.0:
 		Match.finish_talk(self)
 
@@ -1358,16 +1390,29 @@ func _tick_talk(delta: float) -> void:
 func begin_talk() -> void:
 	Match.release_actor_carry(self, true)
 	_dismount_bike()
-	_stand_up()
+	_cancel_play()
+	var map := office()
+	if map:
+		map.free_spot(occupy_id, slot)
+		map.free_energy(occupy_id, slot)
+	occupy_id = ""
 	emp_state = Rules.EmpState.TALK
 	talk_progress = 0.0
 	clear_rescue()
 
 
 func end_talk_rescued() -> void:
+	end_hold_rescued()
+
+
+func end_hold_rescued() -> void:
 	emp_state = Rules.EmpState.WALK
 	talk_progress = 0.0
+	meeting_left = 0.0
 	slack_seen = 0.0
+	slow_left = maxf(slow_left, Rules.RESCUE_SLOW_TIME)
+	_slow_flash = maxf(_slow_flash, 0.45)
+	say("腿还是软的", 0.9)
 
 
 func clear_rescue() -> void:
@@ -1375,20 +1420,36 @@ func clear_rescue() -> void:
 	rescue_slot = -1
 
 
-func apply_catch(repeat: bool, extra_stun: float) -> void:
-	if emp_state == Rules.EmpState.CLOCKING or emp_state == Rules.EmpState.LEFT:
-		return
-	_dismount_bike()
-	_stand_up()
+func apply_talk_fail(repeat: bool) -> void:
+	_abort_task("复盘完了，这单废了")
 	if repeat and tasks_done > 0:
 		tasks_done -= 1
-	stand_lock = Rules.CATCH_STAND_LOCK + extra_stun
+		say("连坐 · 又多一单", 1.3)
+	else:
+		say("复盘结束", 1.0)
 	catch_chain = Rules.CATCH_CHAIN_WINDOW
-	slack_seen = 0.0
 	talk_progress = 0.0
-	rescue_left = 0.0
-	rescue_slot = -1
+	slack_seen = 0.0
+	emp_state = Rules.EmpState.WALK
 	_refresh_legacy()
+
+
+func apply_meeting_fail() -> void:
+	_abort_task("")
+	if tasks_done > 0:
+		tasks_done -= 1
+	energy_cells = 0
+	energy_charge = 0.0
+	meeting_left = 0.0
+	talk_progress = 0.0
+	emp_state = Rules.EmpState.WALK
+	say("开完会了 · 今晚更长", 1.4)
+	_refresh_legacy()
+
+
+func apply_catch(repeat: bool, extra_stun: float) -> void:
+	apply_talk_fail(repeat)
+	stand_lock = maxf(stand_lock, extra_stun)
 
 
 func send_to_meeting(seconds: float, meeting_pos: Vector2) -> void:
@@ -1417,7 +1478,10 @@ func throw_hand_offset() -> Vector2:
 	var side := 1.0 if _facing.x >= 0.0 else -1.0
 	if absf(face.x) >= 0.25:
 		side = signf(face.x)
-	return Vector2(side * 22.0, -50.0)
+	var t := 0.0
+	if throw_flash > 0.0:
+		t = 1.0 - clampf(throw_flash / Rules.TIGER_THROW_POSE, 0.0, 1.0)
+	return Vector2(side * lerpf(12.0, 30.0, t), lerpf(-56.0, -40.0, t))
 
 
 func throw_origin() -> Vector2:
@@ -1464,6 +1528,8 @@ func _try_start_emp_dash() -> bool:
 func _start_dash(cd: float, dur: float) -> bool:
 	if dash_cd > 0.0 or dash_left > 0.0:
 		return false
+	if lunge_left > 0.0 or lunge_stun > 0.0:
+		return false
 	var d := input_dir
 	if d.length() < 0.12:
 		d = _facing
@@ -1476,6 +1542,14 @@ func _start_dash(cd: float, dur: float) -> bool:
 
 
 func _boss_tick(delta: float) -> void:
+	if lunge_stun > 0.0:
+		velocity = Vector2.ZERO
+		move_and_slide()
+		_boss_support_skills()
+		return
+	if lunge_left > 0.0:
+		_tick_boss_lunge(delta)
+		return
 	if want_dash:
 		_start_dash(Rules.TIGER_DASH_CD, Rules.TIGER_DASH_TIME)
 	var speed := Rules.BOSS_BASE_SPEED * Rules.TIGER_SPEED_MUL
@@ -1489,15 +1563,43 @@ func _boss_tick(delta: float) -> void:
 	if want_interact:
 		if not Match.delivery_spots.is_empty():
 			Match.try_grab_delivery(slot)
-		if not Match.try_catch(self) and office():
-			office().try_door(self)
+		Match.start_lunge(self)
 	if office():
 		var stuck = office().nearest_door(global_position, 52.0)
 		if stuck != null and stuck.closed:
 			office().try_door(self)
-	if want_meeting and meeting_cd <= 0.0:
-		if Match.try_meeting(self):
-			meeting_cd = Rules.TIGER_MEETING_CD
+	_boss_support_skills()
+
+
+func _tick_boss_lunge(delta: float) -> void:
+	var prev := global_position
+	velocity = dash_dir * Rules.TIGER_LUNGE_SPEED
+	move_and_slide()
+	if velocity.length() > 4.0:
+		_facing = velocity.normalized()
+	var vic: Actor = Match.lunge_victim(self, prev, global_position)
+	if vic != null:
+		Match.grab_lunge(self, vic)
+		velocity = Vector2.ZERO
+		return
+	lunge_left -= delta
+	if lunge_left <= 0.0:
+		Match.miss_lunge(self)
+
+
+func _boss_support_skills() -> void:
+	if lunge_stun > 0.0 or lunge_left > 0.0:
+		if want_report and report_cd <= 0.0:
+			if Match.try_throw_reports(self, false):
+				report_cd = Rules.REPORT_CD
+				throw_flash = Rules.TIGER_THROW_POSE
+		if want_fan and fan_cd <= 0.0:
+			if Match.try_throw_reports(self, true):
+				fan_cd = Rules.REPORT_FAN_CD
+				throw_flash = Rules.TIGER_THROW_POSE
+		return
+	if want_meeting:
+		Match.try_meeting(self)
 	if want_kpi and kpi_cd <= 0.0 and Match.elapsed >= Rules.KPI_UNLOCK:
 		Match.cast_kpi()
 		kpi_cd = Rules.KPI_CD
@@ -1505,11 +1607,11 @@ func _boss_tick(delta: float) -> void:
 	if want_report and report_cd <= 0.0:
 		if Match.try_throw_reports(self, false):
 			report_cd = Rules.REPORT_CD
-			throw_flash = 0.16
+			throw_flash = Rules.TIGER_THROW_POSE
 	if want_fan and fan_cd <= 0.0:
 		if Match.try_throw_reports(self, true):
 			fan_cd = Rules.REPORT_FAN_CD
-			throw_flash = 0.16
+			throw_flash = Rules.TIGER_THROW_POSE
 	if want_incident and incident_cd <= 0.0 and Match.elapsed >= Rules.INCIDENT_UNLOCK and not Match.incident_active:
 		if Match.cast_incident(self):
 			incident_cd = Rules.INCIDENT_CD
@@ -1557,7 +1659,7 @@ func recv_input(x: float, y: float, interact: bool, slack: bool, meeting: bool, 
 	apply_input(x, y, interact, slack, meeting, kpi, dash, report, fan, incident, blame)
 
 
-func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0, slow: float = 0.0, rcd: float = 0.0, fcd: float = 0.0) -> void:
+func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0, slow: float = 0.0, rcd: float = 0.0, fcd: float = 0.0, power: int = 0, lstun: float = 0.0) -> void:
 	_remote_pos = Vector2(px, py)
 	emp_state = st
 	hours = h
@@ -1572,12 +1674,14 @@ func apply_snapshot(px: float, py: float, st: int, h: float, e: float, vis: bool
 	slow_left = slow
 	report_cd = rcd
 	fan_cd = fcd
+	power_pips = power
+	lunge_stun = lstun
 	if name_label:
 		name_label.text = display_name
 
 
 func _broadcast_state() -> void:
-	Match.sync_actor.rpc(slot, global_position.x, global_position.y, emp_state, hours, energy, visible, meeting_cd, kpi_cd, dash_cd, occupy_id, talk_progress, rescue_left, bike_left, slow_left, report_cd, fan_cd)
+	Match.sync_actor.rpc(slot, global_position.x, global_position.y, emp_state, hours, energy, visible, meeting_cd, kpi_cd, dash_cd, occupy_id, talk_progress, rescue_left, bike_left, slow_left, report_cd, fan_cd, power_pips, lunge_stun)
 	Match.sync_cells.rpc(slot, tasks_done, task_progress, energy_cells, energy_charge, play_kind, play_t, play_mark, play_hits, play_msg, 1 if tasking else 0, occupy_id)
 	if emp_state == Rules.EmpState.TRADE:
 		Match.sync_trade.rpc(slot, trade_left, trade_price, trade_cash, trade_shares, trade_holding, trade_history)
@@ -1607,11 +1711,21 @@ func _draw() -> void:
 		draw_rect(Rect2(-w * 0.5, ty, w, 6), Color(0.14, 0.14, 0.16, 0.9))
 		draw_rect(Rect2(-w * 0.5, ty, w * clampf(fix_progress, 0.0, 1.0), 6), Color(0.22, 0.88, 0.42))
 	if kind == Rules.Kind.EMPLOYEE and emp_state == Rules.EmpState.TALK:
-		var watched := Match.is_watched(self)
 		var pulse := 0.72 + 0.28 * (0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.006))
-		var col := Color(0.85, 0.10, 0.08, (0.22 if watched else 0.13) * pulse)
-		draw_circle(Vector2(0, -18), 52.0 * pulse, col)
-		draw_arc(Vector2(0, -18), 56.0 * pulse, 0, TAU, 32, Color(0.92, 0.18, 0.14, 0.62 if watched else 0.34), 2.2)
+		draw_circle(Vector2(0, -18), 52.0 * pulse, Color(0.85, 0.10, 0.08, 0.16 * pulse))
+		draw_arc(Vector2(0, -18), 56.0 * pulse, 0, TAU, 32, Color(0.92, 0.18, 0.14, 0.5), 2.2)
+	if kind == Rules.Kind.EMPLOYEE and emp_state == Rules.EmpState.MEETING:
+		var ring := Rules.tex(Rules.FX_LOCK_RING)
+		if ring:
+			var sz := ring.get_size()
+			var sc := 96.0 / sz.x
+			draw_set_transform(Vector2(0, 8), 0.0, Vector2(sc, sc))
+			draw_texture(ring, -sz * 0.5, Color(1, 1, 1, 0.85))
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		draw_arc(Vector2(0, -12), 48.0, 0, TAU, 28, Color(0.86, 0.16, 0.12, 0.55), 3.0)
+	if kind == Rules.Kind.BOSS and (lunge_left > 0.0 or lunge_stun > 0.0):
+		var a := 0.45 if lunge_left > 0.0 else 0.22
+		draw_circle(Vector2(0, -8), 26.0, Color(0.7, 0.08, 0.08, a * 0.35))
 	if kind == Rules.Kind.EMPLOYEE and (rescue_left > 0.0 or boost_left > 0.0):
 		var a := 0.35 if rescue_left > 0.0 else 0.22
 		draw_line(Vector2(-28, -8), Vector2(-8, -20), Color(1, 1, 0.7, a), 2.0)
@@ -1630,15 +1744,21 @@ func _draw() -> void:
 			y = name_label.position.y + 16.0
 		_draw_cells(Vector2(-28, y), tasks_done, Rules.TASK_COUNT, task_progress if tasking else 0.0, Color(0.24, 0.86, 0.94))
 		_draw_cells(Vector2(-28, y + 10), energy_cells, Rules.ENERGY_CELLS, energy_charge, Color(0.96, 0.78, 0.29))
-	if emp_state != Rules.EmpState.TALK:
-		return
-	var w := 42.0
-	var ty := -100.0
-	if name_label:
-		ty = name_label.position.y - 10.0
-	draw_rect(Rect2(-w * 0.5, ty, w, 6), Color(0.14, 0.14, 0.16, 0.9))
-	var fill := Color(0.86, 0.22, 0.18) if Match.is_watched(self) else Color(0.95, 0.62, 0.22)
-	draw_rect(Rect2(-w * 0.5, ty, w * clampf(talk_progress, 0.0, 1.0), 6), fill)
+	if emp_state == Rules.EmpState.TALK:
+		var w := 42.0
+		var ty := -100.0
+		if name_label:
+			ty = name_label.position.y - 10.0
+		draw_rect(Rect2(-w * 0.5, ty, w, 6), Color(0.14, 0.14, 0.16, 0.9))
+		draw_rect(Rect2(-w * 0.5, ty, w * clampf(talk_progress, 0.0, 1.0), 6), Color(0.86, 0.22, 0.18))
+	elif emp_state == Rules.EmpState.MEETING:
+		var mw := 42.0
+		var my := -100.0
+		if name_label:
+			my = name_label.position.y - 10.0
+		draw_rect(Rect2(-mw * 0.5, my, mw, 6), Color(0.14, 0.14, 0.16, 0.9))
+		var ratio := 1.0 - clampf(meeting_left / maxf(Rules.TIGER_MEETING_TIME, 0.01), 0.0, 1.0)
+		draw_rect(Rect2(-mw * 0.5, my, mw * ratio, 6), Color(0.72, 0.12, 0.14))
 
 
 func _draw_cells(pos: Vector2, filled: int, total: int, partial: float, accent: Color) -> void:

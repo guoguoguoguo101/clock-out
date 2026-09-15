@@ -124,10 +124,8 @@ func _find_rescue() -> Actor:
 		return null
 	for a in Match.actors.values():
 		var e := a as Actor
-		if e.emp_state != Rules.EmpState.TALK:
+		if not Match.is_hold_target(e):
 			continue
-		if Match.is_watched(e):
-			continue
-		if actor.global_position.distance_to(e.global_position) < 260.0:
+		if actor.global_position.distance_to(e.global_position) < 420.0:
 			return e
 	return null

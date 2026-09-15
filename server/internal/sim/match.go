@@ -245,27 +245,73 @@ func (m *Match) IsWatched(emp *Actor) bool {
 }
 
 func (m *Match) IsCatchable(emp *Actor) bool {
-	if emp.Kind != KindEmployee {
+	return m.IsLungeTarget(emp)
+}
+
+func (m *Match) IsLungeTarget(emp *Actor) bool {
+	if emp == nil || emp.Kind != KindEmployee {
 		return false
 	}
-	if emp.State == StateSlack || emp.State == StateCoffee || emp.State == StateToilet {
-		return true
+	switch emp.State {
+	case StateLeft, StateTalk, StateMeeting, StateClocking, StateCarried:
+		return false
 	}
-	return emp.RescueLeft > 0 || emp.Carrying >= 0
+	return true
+}
+
+func (m *Match) IsHoldTarget(emp *Actor) bool {
+	return emp != nil && emp.Kind == KindEmployee && (emp.State == StateTalk || emp.State == StateMeeting)
 }
 
 func (m *Match) TryCatch(boss *Actor) bool {
-	for _, e := range m.Actors {
-		if !m.IsCatchable(e) {
-			continue
-		}
-		if boss.Pos.Dist(e.Pos) > CatchRange {
-			continue
-		}
-		m.CatchEmployee(e)
-		return true
+	return m.StartLunge(boss)
+}
+
+func (m *Match) StartLunge(boss *Actor) bool {
+	if boss.LungeLeft > 0 || boss.LungeStun > 0 || boss.DashLeft > 0 {
+		return false
 	}
-	return false
+	if boss.Facing.Len() < 0.12 {
+		boss.Facing = Vec{0, 1}
+	}
+	boss.LungeLeft = TigerLungeTime
+	boss.LungeHit = false
+	return true
+}
+
+func (m *Match) LungeVictim(boss *Actor, from, to Vec) *Actor {
+	var best *Actor
+	bestD := TigerLungeRadius
+	for _, e := range m.Actors {
+		if e == boss || !m.IsLungeTarget(e) {
+			continue
+		}
+		d := DistPointSeg(e.Pos, from, to)
+		if d <= bestD {
+			bestD = d
+			best = e
+		}
+	}
+	return best
+}
+
+func (m *Match) GrabLunge(boss, emp *Actor) {
+	boss.LungeLeft = 0
+	boss.LungeHit = true
+	boss.LungeStun = TigerLungeHit
+	if boss.PowerPips < TigerPowerMax {
+		boss.PowerPips++
+	}
+	m.StartTalk(emp)
+}
+
+func (m *Match) MissLunge(boss *Actor) {
+	if boss.LungeHit {
+		boss.LungeLeft = 0
+		return
+	}
+	boss.LungeLeft = 0
+	boss.LungeStun = TigerLungeMiss
 }
 
 func (m *Match) CatchEmployee(emp *Actor) { m.StartTalk(emp) }
@@ -283,12 +329,16 @@ func (m *Match) FinishTalk(emp *Actor) {
 		return
 	}
 	repeat := emp.CatchChain > 0
-	add := CatchHoursFirst
-	if repeat {
-		add = CatchHoursRepeat
-	}
 	emp.ApplyCatch(m, repeat)
-	m.emit(protocol.Event{Kind: "catch", Slot: emp.Slot, Repeat: repeat, AddHours: add})
+	m.emit(protocol.Event{Kind: "catch", Slot: emp.Slot, Repeat: repeat})
+}
+
+func (m *Match) FinishMeeting(emp *Actor) {
+	if emp.State != StateMeeting {
+		return
+	}
+	emp.ApplyMeetingFail(m)
+	m.emit(protocol.Event{Kind: "catch", Slot: emp.Slot, Repeat: true})
 }
 
 func (m *Match) NearestCarryTarget(carrier *Actor) *Actor {
@@ -428,7 +478,7 @@ func (m *Match) NearestTalk(from Vec, maxD float64) *Actor {
 	var best *Actor
 	bestD := maxD
 	for _, e := range m.Actors {
-		if e.Kind != KindEmployee || e.State != StateTalk {
+		if !m.IsHoldTarget(e) {
 			continue
 		}
 		d := from.Dist(e.Pos)
@@ -448,13 +498,6 @@ func (m *Match) TryRescue(rescuer *Actor) bool {
 	if vic == nil {
 		return false
 	}
-	if m.IsWatched(vic) {
-		boss := m.Actors[SlotBoss]
-		if boss != nil && boss.Pos.Dist(rescuer.Pos) <= CatchRange {
-			m.StartTalk(rescuer)
-		}
-		return true
-	}
 	rescuer.RescueSlot = vic.Slot
 	rescuer.RescueLeft = RescueTime
 	return true
@@ -462,11 +505,7 @@ func (m *Match) TryRescue(rescuer *Actor) bool {
 
 func (m *Match) TickRescue(rescuer *Actor, dt float64) bool {
 	vic := m.Actors[rescuer.RescueSlot]
-	if vic == nil || vic.State != StateTalk {
-		rescuer.ClearRescue()
-		return false
-	}
-	if m.IsWatched(vic) {
+	if vic == nil || !m.IsHoldTarget(vic) {
 		rescuer.ClearRescue()
 		return false
 	}
@@ -483,25 +522,35 @@ func (m *Match) TickRescue(rescuer *Actor, dt float64) bool {
 }
 
 func (m *Match) CompleteRescue(rescuer, vic *Actor) {
-	vic.EndTalkRescued()
+	vic.EndHoldRescued()
 	rescuer.ClearRescue()
-	vic.BoostLeft = RescueBoostTime
-	rescuer.BoostLeft = RescueBoostTime
 	m.emit(protocol.Event{Kind: "rescue", Slot: vic.Slot, BySlot: rescuer.Slot})
 }
 
 func (m *Match) TryMeeting(boss *Actor) bool {
+	if boss.PowerPips < TigerPowerMax || boss.LungeLeft > 0 || boss.LungeStun > 0 {
+		return false
+	}
+	aim := boss.Facing
+	if aim.Len() < 0.12 {
+		aim = Vec{0, 1}
+	}
+	aim = aim.Normalized()
 	var best *Actor
 	bestD := MeetingRange
 	for _, e := range m.Actors {
 		if e.Kind != KindEmployee {
 			continue
 		}
-		if e.State == StateLeft || e.State == StateClocking || e.State == StateCarried {
+		if e.State == StateLeft || e.State == StateClocking || e.State == StateMeeting || e.State == StateCarried {
 			continue
 		}
-		d := boss.Pos.Dist(e.Pos)
-		if d > bestD {
+		delta := e.Pos.Sub(boss.Pos)
+		d := delta.Len()
+		if d > bestD || d < 8 {
+			continue
+		}
+		if aim.Dot(delta.Normalized()) < 0.5736 {
 			continue
 		}
 		if !m.Office.CanSee(boss.Pos, e.Pos) {
@@ -513,6 +562,7 @@ func (m *Match) TryMeeting(boss *Actor) bool {
 	if best == nil {
 		return false
 	}
+	boss.PowerPips = 0
 	best.SendToMeeting(m, MeetingTime, m.Office.Points["meeting"])
 	return true
 }

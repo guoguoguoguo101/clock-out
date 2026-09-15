@@ -1,6 +1,7 @@
 extends Node
 
 const WeeklyReportScript := preload("res://src/fx/WeeklyReport.gd")
+const TigerBurstScript := preload("res://src/fx/TigerBurst.gd")
 
 signal lobby_changed
 signal match_started
@@ -312,14 +313,14 @@ func spawn_actor(slot: int, pid: int, pname: String, x: float, y: float, st: int
 
 
 @rpc("authority", "unreliable")
-func sync_actor(slot: int, x: float, y: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, _occ: String, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0, slow: float = 0.0, rcd: float = 0.0, fcd: float = 0.0) -> void:
+func sync_actor(slot: int, x: float, y: float, st: int, h: float, e: float, vis: bool, mcd: float, kcd: float, dcd: float, _occ: String, talk: float = 0.0, rescue: float = 0.0, bike: float = 0.0, slow: float = 0.0, rcd: float = 0.0, fcd: float = 0.0, power: int = 0, lstun: float = 0.0) -> void:
 	if multiplayer.is_server():
 		return
 	if not actors.has(slot):
 		return
 	var actor := actors[slot] as Actor
 	var state := Rules.EmpState.CARRIED if actor.carried_by >= 0 else (Rules.EmpState.WALK if st == Rules.EmpState.CARRIED else st)
-	actor.apply_snapshot(x, y, state, h, e, vis, mcd, kcd, dcd, talk, rescue, bike, slow, rcd, fcd)
+	actor.apply_snapshot(x, y, state, h, e, vis, mcd, kcd, dcd, talk, rescue, bike, slow, rcd, fcd, power, lstun)
 
 
 @rpc("authority", "unreliable")
@@ -418,21 +419,41 @@ func is_watched(emp: Actor) -> bool:
 
 
 func is_catchable(emp: Actor) -> bool:
-	if emp.kind != Rules.Kind.EMPLOYEE:
+	return is_lunge_target(emp)
+
+
+func is_lunge_target(emp: Actor) -> bool:
+	if emp == null or emp.kind != Rules.Kind.EMPLOYEE:
 		return false
-	if emp.emp_state == Rules.EmpState.SLACK or emp.emp_state == Rules.EmpState.COFFEE or emp.emp_state == Rules.EmpState.TOILET or emp.emp_state == Rules.EmpState.TRADE:
-		return true
-	if emp.play_kind != "":
-		return true
-	return emp.rescue_left > 0.0 or emp.carrying_slot >= 0
+	if emp.emp_state in [Rules.EmpState.LEFT, Rules.EmpState.TALK, Rules.EmpState.MEETING, Rules.EmpState.CLOCKING, Rules.EmpState.CARRIED]:
+		return false
+	return true
+
+
+func is_hold_target(emp: Actor) -> bool:
+	if emp == null or emp.kind != Rules.Kind.EMPLOYEE:
+		return false
+	return emp.emp_state == Rules.EmpState.TALK or emp.emp_state == Rules.EmpState.MEETING
+
+
+func is_meeting_target(emp: Actor) -> bool:
+	if emp == null or emp.kind != Rules.Kind.EMPLOYEE:
+		return false
+	if emp.emp_state in [Rules.EmpState.LEFT, Rules.EmpState.CLOCKING, Rules.EmpState.MEETING, Rules.EmpState.CARRIED]:
+		return false
+	return true
 
 
 func nearest_talk(from: Vector2, max_d: float) -> Actor:
+	return nearest_hold(from, max_d)
+
+
+func nearest_hold(from: Vector2, max_d: float) -> Actor:
 	var best: Actor = null
 	var best_d := max_d
 	for a in actors.values():
 		var e := a as Actor
-		if e.kind != Rules.Kind.EMPLOYEE or e.emp_state != Rules.EmpState.TALK:
+		if not is_hold_target(e):
 			continue
 		var d := from.distance_to(e.global_position)
 		if d < best_d:
@@ -442,15 +463,68 @@ func nearest_talk(from: Vector2, max_d: float) -> Actor:
 
 
 func try_catch(boss: Actor) -> bool:
+	return start_lunge(boss)
+
+
+func start_lunge(boss: Actor) -> bool:
+	if not multiplayer.is_server() or not playing:
+		return false
+	if boss.kind != Rules.Kind.BOSS:
+		return false
+	if boss.lunge_left > 0.0 or boss.lunge_stun > 0.0 or boss.dash_left > 0.0:
+		return false
+	var aim := boss.facing_dir()
+	if aim.length() < 0.12:
+		aim = Vector2.DOWN
+	boss.dash_dir = aim.normalized()
+	boss.lunge_left = Rules.TIGER_LUNGE_TIME
+	boss.lunge_hit = false
+	boss.say("过来复盘！", 0.8)
+	spawn_fx(Rules.FX_LUNGE, boss.global_position + aim * 18.0, 0.42, 0.11, -8.0)
+	lunge_event.rpc(boss.slot, boss.dash_dir.x, boss.dash_dir.y, true)
+	return true
+
+
+func lunge_victim(boss: Actor, from: Vector2, to: Vector2) -> Actor:
+	var best: Actor = null
+	var best_t := 999.0
 	for a in actors.values():
 		var e := a as Actor
-		if not is_catchable(e):
+		if e == boss or not is_lunge_target(e):
 			continue
-		if boss.global_position.distance_to(e.global_position) > Rules.CATCH_RANGE:
+		var t := _along_segment(e.global_position, from, to)
+		var d := _dist_point_segment(e.global_position, from, to)
+		if d > Rules.TIGER_LUNGE_RADIUS:
 			continue
-		catch_employee(e)
-		return true
-	return false
+		if t < best_t:
+			best_t = t
+			best = e
+	return best
+
+
+func grab_lunge(boss: Actor, emp: Actor) -> void:
+	if not multiplayer.is_server():
+		return
+	boss.lunge_left = 0.0
+	boss.lunge_hit = true
+	boss.lunge_stun = Rules.TIGER_LUNGE_HIT_STUN
+	boss.power_pips = mini(boss.power_pips + 1, Rules.TIGER_POWER_MAX)
+	spawn_fx(Rules.FX_CLAW, emp.global_position, 0.55, 0.12, -22.0)
+	spawn_fx(Rules.FX_STAMP, emp.global_position, 0.7, 0.1, -36.0)
+	start_talk(emp)
+	lunge_event.rpc(boss.slot, boss.dash_dir.x, boss.dash_dir.y, false)
+
+
+func miss_lunge(boss: Actor) -> void:
+	if not multiplayer.is_server():
+		return
+	if boss.lunge_hit:
+		boss.lunge_left = 0.0
+		return
+	boss.lunge_left = 0.0
+	boss.lunge_stun = Rules.TIGER_LUNGE_MISS_STUN
+	boss.say("扑空了", 0.9)
+	lunge_event.rpc(boss.slot, 0.0, 0.0, false)
 
 
 func catch_employee(emp: Actor) -> void:
@@ -474,9 +548,17 @@ func finish_talk(emp: Actor) -> void:
 	if emp.emp_state != Rules.EmpState.TALK:
 		return
 	var repeat := emp.catch_chain > 0.0
-	var add := Rules.CATCH_HOURS_REPEAT if repeat else Rules.CATCH_HOURS_FIRST
-	emp.apply_catch(repeat, 0.0)
-	notify_caught.rpc(emp.slot, repeat, add)
+	emp.apply_talk_fail(repeat)
+	notify_caught.rpc(emp.slot, repeat, 0.0)
+
+
+func finish_meeting(emp: Actor) -> void:
+	if not multiplayer.is_server():
+		return
+	if emp.emp_state != Rules.EmpState.MEETING:
+		return
+	emp.apply_meeting_fail()
+	notify_caught.rpc(emp.slot, true, 0.0)
 
 
 # Prototype interaction: any available employee can take the pelican shuttle.
@@ -620,16 +702,12 @@ func try_rescue(rescuer: Actor) -> bool:
 		return false
 	if rescuer.emp_state != Rules.EmpState.WALK:
 		return false
-	var vic := nearest_talk(rescuer.global_position, Rules.RESCUE_RANGE)
+	var vic := nearest_hold(rescuer.global_position, Rules.RESCUE_RANGE)
 	if vic == null:
 		return false
-	if is_watched(vic):
-		var boss: Actor = actors.get(Rules.Slot.BOSS) as Actor
-		if boss != null and boss.global_position.distance_to(rescuer.global_position) <= Rules.CATCH_RANGE:
-			start_talk(rescuer)
-		return true
 	rescuer.rescue_slot = vic.slot
 	rescuer.rescue_left = Rules.RESCUE_TIME
+	rescuer.say("我来捞", 0.8)
 	return true
 
 
@@ -638,10 +716,7 @@ func tick_rescue(rescuer: Actor, delta: float) -> bool:
 		rescuer.clear_rescue()
 		return false
 	var vic: Actor = actors[rescuer.rescue_slot]
-	if vic.emp_state != Rules.EmpState.TALK:
-		rescuer.clear_rescue()
-		return false
-	if is_watched(vic):
+	if not is_hold_target(vic):
 		rescuer.clear_rescue()
 		return false
 	if rescuer.global_position.distance_to(vic.global_position) > Rules.RESCUE_RANGE + 16.0:
@@ -655,10 +730,8 @@ func tick_rescue(rescuer: Actor, delta: float) -> bool:
 
 
 func complete_rescue(rescuer: Actor, vic: Actor) -> void:
-	vic.end_talk_rescued()
+	vic.end_hold_rescued()
 	rescuer.clear_rescue()
-	vic.boost_left = Rules.RESCUE_BOOST_TIME
-	rescuer.boost_left = Rules.RESCUE_BOOST_TIME
 	notify_rescued.rpc(vic.slot, rescuer.slot)
 
 
@@ -717,25 +790,100 @@ func trade_threat(emp: Actor) -> float:
 
 
 func try_meeting(boss: Actor) -> bool:
+	if not multiplayer.is_server() or not playing:
+		return false
+	if boss.power_pips < Rules.TIGER_POWER_MAX:
+		boss.say("势力不足 %d/3" % boss.power_pips, 0.8)
+		return false
+	if boss.lunge_left > 0.0 or boss.lunge_stun > 0.0:
+		return false
+	var best := meeting_target(boss)
+	if best == null:
+		boss.say("正前方没人可拉", 0.8)
+		return false
+	boss.power_pips = 0
+	spawn_fx(Rules.FX_MEETING, boss.global_position, 0.9, 0.16, -40.0)
+	var dest: Vector2 = office.points.get("meeting", best.global_position)
+	spawn_fx(Rules.FX_MEETING, dest, 1.1, 0.18, -20.0)
+	spawn_fx(Rules.FX_LOCK_RING, dest, 1.2, 0.2, 8.0)
+	best.send_to_meeting(Rules.TIGER_MEETING_TIME, dest)
+	boss.say("会议室，现在。", 1.2)
+	meeting_pose.rpc(boss.slot)
+	return true
+
+
+func meeting_target(boss: Actor) -> Actor:
+	var aim := boss.facing_dir()
+	if aim.length() < 0.12:
+		aim = Vector2.DOWN
+	aim = aim.normalized()
+	var half := deg_to_rad(Rules.TIGER_MEETING_CONE)
 	var best: Actor = null
-	var best_d := 420.0
+	var best_d := Rules.TIGER_MEETING_RANGE
 	for a in actors.values():
 		var e := a as Actor
-		if e.kind != Rules.Kind.EMPLOYEE:
+		if not is_meeting_target(e):
 			continue
-		if e.emp_state in [Rules.EmpState.LEFT, Rules.EmpState.CLOCKING, Rules.EmpState.CARRIED]:
+		var delta: Vector2 = e.global_position - boss.global_position
+		var d := delta.length()
+		if d > best_d or d < 8.0:
 			continue
-		var d := boss.global_position.distance_to(e.global_position)
-		if d > best_d:
+		if absf(aim.angle_to(delta)) > half:
 			continue
 		if not _can_see(boss.global_position, e.global_position):
 			continue
 		best = e
 		best_d = d
-	if best == null:
-		return false
-	best.send_to_meeting(Rules.TIGER_MEETING_TIME, office.points["meeting"])
-	return true
+	return best
+
+
+func spawn_fx(path: String, pos: Vector2, dur := 0.7, sc := 0.1, lift := -28.0) -> void:
+	fx_event.rpc(path, pos.x, pos.y, dur, sc, lift)
+
+
+@rpc("authority", "call_local", "reliable")
+func fx_event(path: String, x: float, y: float, dur: float, sc: float, lift: float) -> void:
+	if office == null:
+		return
+	var burst = TigerBurstScript.new()
+	office.add_child(burst)
+	burst.setup(path, Vector2(x, y), dur, sc, lift)
+
+
+@rpc("authority", "call_local", "reliable")
+func meeting_pose(slot: int) -> void:
+	var boss := actors.get(slot) as Actor
+	if boss == null:
+		return
+	boss.ult_flash = Rules.TIGER_ULT_POSE
+
+
+@rpc("authority", "call_local", "reliable")
+func lunge_event(slot: int, dx: float, dy: float, on: bool) -> void:
+	var boss := actors.get(slot) as Actor
+	if boss == null:
+		return
+	if on:
+		boss.dash_dir = Vector2(dx, dy).normalized()
+		boss.lunge_left = Rules.TIGER_LUNGE_TIME
+		boss.lunge_hit = false
+	elif boss.lunge_left > 0.0:
+		boss.lunge_left = 0.0
+
+
+func _dist_point_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var den := ab.length_squared()
+	var t := 0.0 if den < 0.001 else clampf((p - a).dot(ab) / den, 0.0, 1.0)
+	return p.distance_to(a + ab * t)
+
+
+func _along_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var den := ab.length_squared()
+	if den < 0.001:
+		return 0.0
+	return clampf((p - a).dot(ab) / den, 0.0, 1.0)
 
 
 func _can_see(from: Vector2, to: Vector2) -> bool:

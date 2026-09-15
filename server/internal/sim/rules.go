@@ -43,16 +43,25 @@ const (
 	CatchChainWindow = 12.0
 	CatchRange       = 70.0
 
-	TalkWatchTime  = 5.0
+	TalkWatchTime  = 10.0
 	TalkAloneTime  = 10.0
-	RescueTime     = 1.2
+	TalkTime       = 10.0
+	RescueTime     = 2.5
 	RescueRange    = 72.0
-	RescueBoostTime = 1.6
-	RescueBoostMul  = 1.28
+	RescueBoostTime = 0.0
+	RescueBoostMul  = 1.0
+	RescueSlowTime  = 2.0
 
-	MeetingTime    = 9.0
-	TigerMeetingCD = 22.0
+	MeetingTime    = 30.0
+	TigerMeetingCD = 0.0
 	MeetingRange   = 420.0
+	TigerMeetingCone = 55.0
+	TigerPowerMax    = 3
+	TigerLungeTime   = 0.32
+	TigerLungeSpeed  = 320.0
+	TigerLungeRadius = 46.0
+	TigerLungeMiss   = 1.5
+	TigerLungeHit    = 0.4
 
 	KPIHours  = 10.0
 	KPICD     = 75.0

@@ -56,10 +56,15 @@ def scarf_mask(rgb: np.ndarray, alpha: np.ndarray) -> np.ndarray:
 
 
 def fill_scarf_hole(rgb: np.ndarray, alpha: np.ndarray, scarf: np.ndarray) -> np.ndarray:
+    """Fill accessory holes. Prefer nearby cream/belly paint so a necktie does not turn orange."""
     out = rgb.copy()
     body = (alpha > 0.2) & ~scarf
+    if not scarf.any():
+        return out
     if body.any():
-        fill = np.median(rgb[body], axis=0)
+        chroma = rgb.max(axis=2) - rgb.min(axis=2)
+        cream = body & (rgb[:, :, 0] > 180) & (rgb[:, :, 1] > 160) & (rgb[:, :, 2] > 140) & (chroma < 55)
+        fill = np.median(rgb[cream], axis=0) if cream.any() else np.median(rgb[body], axis=0)
     else:
         fill = np.array([80.0, 80.0, 86.0], np.float32)
     out[scarf] = fill
@@ -115,8 +120,11 @@ def aligned_layers(src: Image.Image) -> tuple[np.ndarray, np.ndarray, dict]:
     return canvas_b, canvas_s, {"scarf_px": int(scarf.sum()), "vis": int(vis.sum())}
 
 
-def poses_for(ride: bool) -> list[str]:
-    anims = ANIMS + (("ride",) if ride else ())
+def poses_for(ride: bool, only: list[str] | None = None) -> list[str]:
+    if only:
+        anims = tuple(a.strip() for a in only if a.strip())
+    else:
+        anims = ANIMS + (("ride",) if ride else ())
     return [f"{anim}_{i}" for anim in anims for i in range(4)]
 
 
@@ -146,10 +154,11 @@ def main() -> None:
     ap.add_argument("--pack", required=True, help="horse / kangaroo / rabbit ...")
     ap.add_argument("--src", required=True, type=Path, help="folder of magenta gens")
     ap.add_argument("--ride", action="store_true", help="also split ride_0..3")
+    ap.add_argument("--only", nargs="+", help="only these anims, e.g. lunge throw ult")
     args = ap.parse_args()
     pack = args.pack.strip().lower()
     src_dir = args.src.expanduser().resolve()
-    poses = poses_for(args.ride)
+    poses = poses_for(args.ride, args.only)
     body_out = ROOT / "assets" / "game" / "chars" / pack
     scarf_out = body_out / "scarf"
     archive_old(pack, poses)

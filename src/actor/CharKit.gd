@@ -19,12 +19,18 @@ const SLEEP := ["sleep_0", "sleep_1", "sleep_2", "sleep_3"]
 const TOILET := ["toilet_0", "toilet_1", "toilet_2", "toilet_3"]
 const RIDE := ["ride_0", "ride_1", "ride_2", "ride_3"]
 const TRADE := ["trade_0", "trade_1"]
+const LUNGE := ["lunge_0", "lunge_1", "lunge_2", "lunge_3"]
+const THROW := ["throw_0", "throw_1", "throw_2", "throw_3"]
+const ULT := ["ult_0", "ult_1", "ult_2", "ult_3"]
 const FALLBACK := {
 	"work": "work_0",
 	"sleep": "sleep_0",
 	"toilet": "toilet_0",
 	"ride": "idle_0",
 	"trade": "trade_0",
+	"lunge": "run_0",
+	"throw": "idle_0",
+	"ult": "idle_0",
 }
 
 static var _cache: Dictionary = {}
@@ -65,7 +71,9 @@ static func scarf_tex(skin: int, pose: String) -> Texture2D:
 		return _cache[key] as Texture2D
 	var tex := _try_tex("res://assets/game/chars/%s/scarf/%s.png" % [pack, pose])
 	if tex == null:
-		var fb := str(FALLBACK.get(pose, "idle_0"))
+		var fb := "idle_0"
+		if pose.begins_with("lunge"):
+			fb = "run_0"
 		tex = _try_tex("res://assets/game/chars/%s/scarf/%s.png" % [pack, fb])
 	_cache[key] = tex
 	return tex
@@ -78,6 +86,10 @@ static func _load_pose(pack: String, pose: String) -> Texture2D:
 		return tex
 	var fb := str(FALLBACK.get(pose, "idle_0"))
 	if pose.begins_with("ride"):
+		fb = "idle_0"
+	elif pose.begins_with("lunge"):
+		fb = "run_0"
+	elif pose.begins_with("throw") or pose.begins_with("ult"):
 		fb = "idle_0"
 	tex = _try_tex("res://assets/game/chars/%s/%s.png" % [pack, fb])
 	if tex != null:
@@ -105,5 +117,11 @@ static func loop_frames(anim: String) -> PackedStringArray:
 			return PackedStringArray(RIDE)
 		"trade":
 			return PackedStringArray(TRADE)
+		"lunge":
+			return PackedStringArray(LUNGE)
+		"throw":
+			return PackedStringArray(THROW)
+		"ult":
+			return PackedStringArray(ULT)
 		_:
 			return PackedStringArray(IDLE)

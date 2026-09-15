@@ -11,6 +11,23 @@ func (v Vec) Sub(o Vec) Vec      { return Vec{v.X - o.X, v.Y - o.Y} }
 func (v Vec) Mul(s float64) Vec  { return Vec{v.X * s, v.Y * s} }
 func (v Vec) Len() float64       { return math.Hypot(v.X, v.Y) }
 func (v Vec) Dist(o Vec) float64 { return v.Sub(o).Len() }
+func (v Vec) Dot(o Vec) float64  { return v.X*o.X + v.Y*o.Y }
+
+func DistPointSeg(p, a, b Vec) float64 {
+	ab := b.Sub(a)
+	den := ab.X*ab.X + ab.Y*ab.Y
+	t := 0.0
+	if den >= 0.001 {
+		t = p.Sub(a).Dot(ab) / den
+		if t < 0 {
+			t = 0
+		}
+		if t > 1 {
+			t = 1
+		}
+	}
+	return p.Dist(a.Add(ab.Mul(t)))
+}
 
 func (v Vec) Normalized() Vec {
 	l := v.Len()
