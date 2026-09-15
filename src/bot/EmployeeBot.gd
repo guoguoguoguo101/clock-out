@@ -37,6 +37,20 @@ func tick(delta: float) -> void:
 	if actor.fixing:
 		actor.input_dir = Vector2.ZERO
 		return
+	# 抢外卖
+	if not Match.delivery_spots.is_empty() and actor.energy_cells < 3:
+		var best_key := -1
+		var best_dist := 999999.0
+		for k in Match.delivery_spots:
+			var dd: float = actor.global_position.distance_to(Match.delivery_spots[k])
+			if dd < best_dist:
+				best_dist = dd
+				best_key = k
+		if best_key >= 0:
+			_go(Match.delivery_spots[best_key], delta)
+			if best_dist < 80.0:
+				actor.want_interact = true
+			return
 	think -= delta
 	if actor.rescue_left > 0.0:
 		actor.input_dir = Vector2.ZERO
@@ -91,7 +105,7 @@ func tick(delta: float) -> void:
 		_go(map.points["corridor"], delta)
 		return
 	var seat_id := map.nearest_free("seat", actor.global_position)
-	if seat_id == "":
+	if seat_id == "" or Match.intranet_down or Match.blackout_active:
 		_go(map.points["corridor"], delta)
 		return
 	_go(map.points[seat_id], delta)

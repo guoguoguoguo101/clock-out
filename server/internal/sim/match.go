@@ -1,6 +1,9 @@
 package sim
 
-import "clockout/server/internal/protocol"
+import (
+	"clockout/server/internal/protocol"
+	"math/rand"
+)
 
 type Bot interface {
 	Tick(dt float64)
@@ -26,6 +29,19 @@ type Match struct {
 	IncidentBlameSlot int
 	IncidentTerminal  Vec
 	IncidentFixed     bool
+
+	// 随机事件
+	EventActive    string
+	EventLeft      float64
+	EventTimer     float64
+	EventCount     int
+	EventUsed      []string
+	AnonRevealSlot int
+	AnonRevealLeft float64
+	BlackoutActive bool
+	DeliverySpots  map[int]Vec
+	IntranetDown   bool
+	IntranetBoostLeft float64
 }
 
 func NewMatch() *Match {
@@ -33,6 +49,8 @@ func NewMatch() *Match {
 		Phase:    "lobby",
 		TimeLeft: MatchSeconds,
 		IncidentBlameSlot: -1,
+		AnonRevealSlot: -1,
+		DeliverySpots: map[int]Vec{},
 		Slots: map[int]int{
 			SlotBoss: -1, SlotEmpA: -1, SlotEmpB: -1, SlotEmpC: -1, SlotEmpD: -1, SlotEmpE: -1,
 		},
@@ -163,6 +181,7 @@ func (m *Match) Tick(dt float64) {
 	if m.IncidentActive {
 		m.tickIncident(dt)
 	}
+	m.tickRandomEvents(dt)
 	for _, b := range m.Bots {
 		b.Tick(dt)
 	}
@@ -731,6 +750,19 @@ func (m *Match) Snapshot() protocol.Snapshot {
 		IncidentBlame:  m.IncidentBlameSlot,
 		IncidentX:      m.IncidentTerminal.X,
 		IncidentY:      m.IncidentTerminal.Y,
+		EventActive:    m.EventActive,
+		EventLeft:      m.EventLeft,
+		AnonRevealSlot: m.AnonRevealSlot,
+		AnonRevealLeft: m.AnonRevealLeft,
+		BlackoutActive: m.BlackoutActive,
+		IntranetDown:   m.IntranetDown,
+		IntranetBoostLeft: m.IntranetBoostLeft,
+	}
+	if len(m.DeliverySpots) > 0 {
+		snap.DeliverySpots = map[string][]float64{}
+		for k, v := range m.DeliverySpots {
+			snap.DeliverySpots[itoa(k)] = []float64{v.X, v.Y}
+		}
 	}
 	for k, v := range m.Office.Occupiers {
 		snap.Occupiers[k] = v
@@ -784,4 +816,237 @@ func (m *Match) LobbyState(code string, captain int) protocol.Lobby {
 		names[itoa(id)] = n
 	}
 	return protocol.Lobby{Code: code, Phase: m.Phase, Short: m.Short, Captain: captain, Slots: slots, Names: names}
+}
+
+// ── 随机事件系统 ──
+
+var eventPool = []string{"anon_report", "blackout", "delivery", "intranet_down"}
+var eventWeights = map[string]int{"anon_report": 16, "blackout": 10, "delivery": 14, "intranet_down": 12}
+
+var deliverySpawnSpots = []Vec{
+	{200, 400}, {400, 400}, {600, 400}, {1000, 400},
+}
+
+func (m *Match) tickRandomEvents(dt float64) {
+	maxEvents := 4
+	if m.Short {
+		maxEvents = 2
+	}
+	if m.AnonRevealLeft > 0 {
+		m.AnonRevealLeft -= dt
+		if m.AnonRevealLeft <= 0 {
+			m.AnonRevealSlot = -1
+		}
+	}
+	if m.IntranetBoostLeft > 0 {
+		m.IntranetBoostLeft -= dt
+	}
+	if m.EventCount >= maxEvents {
+		return
+	}
+	if m.EventActive != "" {
+		m.tickActiveEvent(dt)
+		return
+	}
+	if m.Elapsed < EventFirstDelay || m.IncidentActive {
+		return
+	}
+	m.EventTimer -= dt
+	if m.EventTimer <= 0 {
+		m.triggerRandomEvent()
+	}
+}
+
+func (m *Match) pickRandomEvent() string {
+	pool := make([]string, 0, len(eventPool))
+	for _, e := range eventPool {
+		found := false
+		for _, u := range m.EventUsed {
+			if u == e {
+				found = true
+				break
+			}
+		}
+		if !found {
+			pool = append(pool, e)
+		}
+	}
+	if len(pool) == 0 {
+		m.EventUsed = nil
+		pool = append(pool, eventPool...)
+	}
+	total := 0
+	for _, e := range pool {
+		total += eventWeights[e]
+	}
+	r := rand.Intn(total)
+	acc := 0
+	for _, e := range pool {
+		acc += eventWeights[e]
+		if r < acc {
+			return e
+		}
+	}
+	return pool[len(pool)-1]
+}
+
+func (m *Match) triggerRandomEvent() {
+	ev := m.pickRandomEvent()
+	m.EventUsed = append(m.EventUsed, ev)
+	m.EventCount++
+	switch ev {
+	case "anon_report":
+		m.startAnonReport()
+	case "blackout":
+		m.startBlackout()
+	case "delivery":
+		m.startDelivery()
+	case "intranet_down":
+		m.startIntranetDown()
+	}
+	m.EventTimer = EventMinInterval + rand.Float64()*(EventMaxInterval-EventMinInterval)
+}
+
+func (m *Match) tickActiveEvent(dt float64) {
+	m.EventLeft -= dt
+	switch m.EventActive {
+	case "blackout":
+		if m.EventLeft <= 0 {
+			m.endBlackout()
+		}
+	case "delivery":
+		if m.EventLeft <= 0 || len(m.DeliverySpots) == 0 {
+			m.endDelivery()
+		}
+	case "intranet_down":
+		if m.EventLeft <= 0 {
+			m.endIntranetDown()
+		}
+	}
+}
+
+func (m *Match) startAnonReport() {
+	var candidates []int
+	for _, s := range EmployeeSlots {
+		a := m.Actors[s]
+		if a != nil && a.State != StateLeft && a.State != StateWork {
+			candidates = append(candidates, s)
+		}
+	}
+	if len(candidates) == 0 {
+		for _, s := range EmployeeSlots {
+			if m.Actors[s] != nil {
+				candidates = append(candidates, s)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		m.EventCount--
+		m.EventTimer = 10
+		return
+	}
+	target := candidates[rand.Intn(len(candidates))]
+	m.AnonRevealSlot = target
+	m.AnonRevealLeft = AnonReportReveal
+	m.emit(protocol.Event{Kind: "anon_report", Slot: target})
+}
+
+func (m *Match) startBlackout() {
+	m.EventActive = "blackout"
+	m.EventLeft = BlackoutDuration
+	m.BlackoutActive = true
+	for _, s := range EmployeeSlots {
+		a := m.Actors[s]
+		if a != nil && (a.State == StateWork || a.State == StateSlack) {
+			if a.OccupyID != "" {
+				m.Office.FreeSpot(a.OccupyID, a.Slot)
+				a.OccupyID = ""
+			}
+			a.State = StateWalk
+		}
+	}
+	m.emit(protocol.Event{Kind: "blackout"})
+}
+
+func (m *Match) endBlackout() {
+	m.BlackoutActive = false
+	m.EventActive = ""
+	m.EventLeft = 0
+	m.emit(protocol.Event{Kind: "blackout_end"})
+}
+
+func (m *Match) startDelivery() {
+	m.EventActive = "delivery"
+	m.EventLeft = DeliveryDuration
+	m.DeliverySpots = map[int]Vec{}
+	perm := rand.Perm(len(deliverySpawnSpots))
+	count := DeliveryCount
+	if count > len(deliverySpawnSpots) {
+		count = len(deliverySpawnSpots)
+	}
+	for i := 0; i < count; i++ {
+		m.DeliverySpots[i] = deliverySpawnSpots[perm[i]]
+	}
+	m.emit(protocol.Event{Kind: "delivery"})
+}
+
+func (m *Match) endDelivery() {
+	m.DeliverySpots = map[int]Vec{}
+	m.EventActive = ""
+	m.EventLeft = 0
+	m.emit(protocol.Event{Kind: "delivery_end"})
+}
+
+func (m *Match) TryGrabDelivery(slot int) bool {
+	if len(m.DeliverySpots) == 0 {
+		return false
+	}
+	a := m.Actors[slot]
+	if a == nil {
+		return false
+	}
+	bestKey := -1
+	bestDist := 999999.0
+	for k, v := range m.DeliverySpots {
+		d := a.Pos.Dist(v)
+		if d < 80 && d < bestDist {
+			bestDist = d
+			bestKey = k
+		}
+	}
+	if bestKey < 0 {
+		return false
+	}
+	delete(m.DeliverySpots, bestKey)
+	isBoss := slot == SlotBoss
+	if !isBoss {
+		a.Energy = minf(a.Energy+30, EnergyMax)
+	}
+	m.emit(protocol.Event{Kind: "delivery_grab", Slot: slot, On: !isBoss})
+	return true
+}
+
+func (m *Match) startIntranetDown() {
+	m.EventActive = "intranet_down"
+	m.EventLeft = IntranetDuration
+	m.IntranetDown = true
+	for _, s := range EmployeeSlots {
+		a := m.Actors[s]
+		if a != nil && (a.State == StateWork || a.State == StateSlack) {
+			if a.OccupyID != "" {
+				m.Office.FreeSpot(a.OccupyID, a.Slot)
+				a.OccupyID = ""
+			}
+			a.State = StateWalk
+		}
+	}
+	m.emit(protocol.Event{Kind: "intranet_down"})
+}
+
+func (m *Match) endIntranetDown() {
+	m.IntranetDown = false
+	m.IntranetBoostLeft = IntranetBoostTime
+	m.EventActive = ""
+	m.EventLeft = 0
+	m.emit(protocol.Event{Kind: "intranet_end"})
 }

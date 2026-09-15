@@ -36,6 +36,30 @@ func tick(delta: float) -> void:
 			return
 	else:
 		watching = false
+	# 匿名举报：追踪暴露的员工
+	if Match.anon_reveal_slot >= 0 and Match.actors.has(Match.anon_reveal_slot):
+		var target_a: Actor = Match.actors[Match.anon_reveal_slot]
+		if target_a.emp_state != Rules.EmpState.WORK:
+			var d := target_a.global_position - actor.global_position
+			actor.input_dir = d.normalized()
+			if d.length() < Rules.CATCH_RANGE + 8.0:
+				actor.want_interact = true
+			return
+	# 抢外卖（浪费员工的）
+	if not Match.delivery_spots.is_empty():
+		var best_dk := -1
+		var best_dd := 999999.0
+		for k in Match.delivery_spots:
+			var dd: float = actor.global_position.distance_to(Match.delivery_spots[k])
+			if dd < best_dd:
+				best_dd = dd
+				best_dk = k
+		if best_dk >= 0:
+			var dp: Vector2 = Match.delivery_spots[best_dk]
+			actor.input_dir = (dp - actor.global_position).normalized()
+			if best_dd < 80.0:
+				actor.want_interact = true
+			return
 	var prey := _find_prey()
 	if prey != null:
 		var d := prey.global_position - actor.global_position

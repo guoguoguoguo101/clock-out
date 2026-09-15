@@ -100,6 +100,35 @@ const INCIDENT_ASSIST_QUIPS := ["我来 review", "我帮你看看日志", "一�
 const INCIDENT_FAIL_QUIPS := ["写复盘吧", "明天早会讲", "这个锅背定了"]
 const INCIDENT_PASS_QUIPS := ["这块不归我管", "找原 owner 吧", "我这边没问题啊", "你看看你那边"]
 
+# 随机事件系统
+const EVENT_FIRST_DELAY := 60.0
+const EVENT_MIN_INTERVAL := 45.0
+const EVENT_MAX_INTERVAL := 65.0
+const EVENT_MAX_PER_MATCH := 4
+const EVENT_MAX_PER_SHORT := 2
+
+# 匿名举报
+const ANON_REPORT_REVEAL := 8.0
+const ANON_REPORT_QUIPS := ["收到匿名反馈，已转交管理层", "有人不在工位，已上报", "内部信箱收到举报信"]
+
+# 停电
+const BLACKOUT_DURATION := 25.0
+const BLACKOUT_VISION := 120.0
+const BLACKOUT_QUIPS := ["B 座配电房故障", "应急电源启动中", "请勿惊慌，保持原位"]
+
+# 外卖到了
+const DELIVERY_DURATION := 15.0
+const DELIVERY_COUNT := 2
+const DELIVERY_BOOST_TIME := 5.0
+const DELIVERY_BOOST_MUL := 1.3
+const DELIVERY_QUIPS := ["您的外卖已送达前台", "谁点的瑞幸？快来取", "隔壁组已经在拆了"]
+
+# 内网崩了
+const INTRANET_DURATION := 20.0
+const INTRANET_BOOST_TIME := 5.0
+const INTRANET_BOOST_MUL := 1.5
+const INTRANET_QUIPS := ["内网维护中，请勿刷新", "VPN 又断了", "IT 说重启一下试试"]
+
 const INTERACT_RANGE := 64.0
 const DOOR_RANGE := 62.0
 const DOOR_OPEN_TIME := 1.65

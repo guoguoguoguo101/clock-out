@@ -51,6 +51,12 @@ var incident_timer_label: Label
 var incident_terminal_marker: ColorRect
 var home_page: Control
 var join_page: Control
+
+# 随机事件 UI
+var event_banner: Label
+var event_timer_label: Label
+var blackout_veil: ColorRect
+var anon_arrow: Node2D
 var char_page: Control
 var haunt
 var room_code_edit: LineEdit
@@ -108,6 +114,8 @@ func _ready() -> void:
 	Match.incident_ended.connect(_on_incident_end)
 	Match.blame_passed.connect(_on_blame_pass)
 	Match.fix_completed.connect(_on_fix_done)
+	Match.random_event.connect(_on_random_event)
+	Match.random_event_ended.connect(_on_random_event_end)
 	Net.status_changed.connect(_refresh_lobby)
 	Net.peer_list_changed.connect(_refresh_lobby)
 	Net.room_ready.connect(_on_room_ready)
@@ -338,6 +346,39 @@ func _build_ui() -> void:
 	incident_timer_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.35))
 	incident_timer_label.visible = false
 	hud.add_child(incident_timer_label)
+
+	# 随机事件 UI
+	event_banner = Label.new()
+	event_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	event_banner.offset_left = -260
+	event_banner.offset_top = 100
+	event_banner.offset_right = 260
+	event_banner.offset_bottom = 130
+	event_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	event_banner.add_theme_font_size_override("font_size", 18)
+	event_banner.add_theme_color_override("font_color", Color(1.0, 0.95, 0.7))
+	event_banner.visible = false
+	hud.add_child(event_banner)
+
+	event_timer_label = Label.new()
+	event_timer_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	event_timer_label.offset_left = -80
+	event_timer_label.offset_top = 126
+	event_timer_label.offset_right = 80
+	event_timer_label.offset_bottom = 146
+	event_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	event_timer_label.add_theme_font_size_override("font_size", 13)
+	event_timer_label.add_theme_color_override("font_color", Color(0.9, 0.8, 0.4))
+	event_timer_label.visible = false
+	hud.add_child(event_timer_label)
+
+	blackout_veil = ColorRect.new()
+	blackout_veil.set_anchors_preset(Control.PRESET_FULL_RECT)
+	blackout_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	blackout_veil.color = Color(0.0, 0.0, 0.0, 0.0)
+	blackout_veil.visible = false
+	hud.add_child(blackout_veil)
+
 	hours_bar.z_index = 24
 	energy_bar.z_index = 24
 	energy_play.z_index = 40
@@ -1611,6 +1652,53 @@ func _on_fix_done(slot: int, is_assist: bool) -> void:
 			_flash_banner("%s 修复了 Bug · 事故解除" % who, Color(0.22, 0.82, 0.42), 1.5)
 
 
+func _on_random_event(event_name: String, data: Dictionary) -> void:
+	match event_name:
+		"anon_report":
+			var s: int = data.get("slot", -1)
+			var who := _slot_nick(s)
+			_flash_banner("📢 匿名举报 · %s 行迹暴露！" % who, Color(0.95, 0.65, 0.15), 2.5)
+			_cam_punch = 0.2
+		"blackout":
+			_flash_banner("⚡ 停电了！摸黑前行！", Color(0.3, 0.3, 0.5), 2.5)
+			if blackout_veil:
+				blackout_veil.visible = true
+			if event_banner:
+				event_banner.text = "⚡ 停电中"
+				event_banner.visible = true
+			if event_timer_label:
+				event_timer_label.visible = true
+			_cam_punch = 0.35
+		"delivery":
+			_flash_banner("🍜 外卖到了！快去前台抢！", Color(0.95, 0.72, 0.2), 2.5)
+			if event_banner:
+				event_banner.text = "🍜 外卖到了 · E 抢"
+				event_banner.visible = true
+			if event_timer_label:
+				event_timer_label.visible = true
+		"intranet_down":
+			_flash_banner("🌐 内网崩了！无法工作！", Color(0.4, 0.55, 0.85), 2.5)
+			if event_banner:
+				event_banner.text = "🌐 内网崩了 · 无法坐下"
+				event_banner.visible = true
+			if event_timer_label:
+				event_timer_label.visible = true
+			_cam_punch = 0.25
+
+func _on_random_event_end(event_name: String) -> void:
+	match event_name:
+		"blackout":
+			_flash_banner("💡 来电了！", Color(0.85, 0.88, 0.4), 1.5)
+		"delivery":
+			pass
+		"intranet_down":
+			_flash_banner("🌐 内网恢复！工作效率 ×%.1f（%ds）" % [Rules.INTRANET_BOOST_MUL, int(Rules.INTRANET_BOOST_TIME)], Color(0.4, 0.85, 0.55), 2.0)
+	if event_banner:
+		event_banner.visible = false
+	if event_timer_label:
+		event_timer_label.visible = false
+
+
 func _same_view_as(other: Actor) -> bool:
 	var me := _local_actor()
 	if me == null or other == null or office == null:
@@ -1908,6 +1996,21 @@ func _update_camera(delta: float) -> void:
 			incident_timer_label.add_theme_color_override("font_color", Color(1.0, 0.35, 0.25) if blink else Color(1.0, 0.65, 0.55))
 		else:
 			incident_timer_label.visible = false
+	# 停电暗幕
+	if blackout_veil:
+		if Match.blackout_active:
+			blackout_veil.visible = true
+			var flicker := 0.72 + 0.06 * sin(_breath_t * 1.8)
+			blackout_veil.color = Color(0.0, 0.0, 0.02, flicker)
+		else:
+			blackout_veil.color.a = lerpf(blackout_veil.color.a, 0.0, 1.0 - exp(-4.0 * delta))
+			if blackout_veil.color.a < 0.01:
+				blackout_veil.visible = false
+	# 随机事件倒计时
+	if event_timer_label and Match.event_active != "":
+		event_timer_label.text = "%.0fs" % ceilf(Match.event_left)
+	elif event_timer_label:
+		event_timer_label.visible = false
 	for i in mate_snow.size():
 		var snow := mate_snow[i]
 		if snow.color.a > 0.04:

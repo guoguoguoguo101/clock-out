@@ -15,6 +15,8 @@ signal incident_started(blame_slot: int)
 signal incident_ended(fixed: bool, blame_slot: int)
 signal blame_passed(from_slot: int, to_slot: int)
 signal fix_completed(slot: int, is_assist: bool)
+signal random_event(event_name: String, data: Dictionary)
+signal random_event_ended(event_name: String)
 
 var phase := "lobby"
 var playing := false
@@ -56,6 +58,26 @@ var _incident_terminal_spots := [
 	Vector2(1100, 1000),
 ]
 
+# ── 随机事件系统 ──
+var event_active := ""
+var event_left := 0.0
+var event_data := {}
+var _event_timer := 0.0
+var _event_count := 0
+var _event_used := []
+var _event_pool := ["anon_report", "blackout", "delivery", "intranet_down"]
+var _event_weights := {"anon_report": 16, "blackout": 10, "delivery": 14, "intranet_down": 12}
+# 匿名举报
+var anon_reveal_slot := -1
+var anon_reveal_left := 0.0
+# 停电
+var blackout_active := false
+# 外卖
+var delivery_spots := {}
+# 内网崩了
+var intranet_down := false
+var intranet_boost_left := 0.0
+
 var _actor_scene: PackedScene = preload("res://src/actor/Actor.tscn")
 
 
@@ -81,10 +103,12 @@ func _process(delta: float) -> void:
 		time_left = max(0.0, time_left - delta)
 		if incident_active:
 			_tick_incident(delta)
+		_tick_random_events(delta)
 		for bot in bots:
 			bot.tick(delta)
 		_sync_clock.rpc(phase, elapsed, time_left, 0.0)
 		_sync_incident.rpc(incident_active, incident_left, incident_blame_slot, incident_terminal_pos.x, incident_terminal_pos.y)
+		_sync_event_state.rpc(event_active, event_left, anon_reveal_slot, anon_reveal_left, blackout_active, intranet_down, intranet_boost_left)
 		hud_dirty.emit()
 		if time_left <= 0.0 or _all_punched():
 			_finish()
@@ -348,6 +372,19 @@ func _sync_incident(active: bool, left: float, blame: int, tx: float, ty: float)
 	for a in actors.values():
 		var e := a as Actor
 		e.is_blame_target = (e.slot == blame and active)
+
+
+@rpc("authority", "unreliable")
+func _sync_event_state(p_active: String, p_left: float, p_anon_slot: int, p_anon_left: float, p_blackout: bool, p_intranet: bool, p_intra_boost: float) -> void:
+	if multiplayer.is_server():
+		return
+	event_active = p_active
+	event_left = p_left
+	anon_reveal_slot = p_anon_slot
+	anon_reveal_left = p_anon_left
+	blackout_active = p_blackout
+	intranet_down = p_intranet
+	intranet_boost_left = p_intra_boost
 
 
 func is_supervised(emp: Actor) -> bool:
@@ -1039,6 +1076,249 @@ func notify_fix_done(slot: int, is_assist: bool) -> void:
 	fix_completed.emit(slot, is_assist)
 
 
+# ═══════════════════════════════════════════════
+# 随机事件系统
+# ═══════════════════════════════════════════════
+
+func _reset_event_state() -> void:
+	event_active = ""
+	event_left = 0.0
+	event_data = {}
+	_event_timer = 0.0
+	_event_count = 0
+	_event_used.clear()
+	anon_reveal_slot = -1
+	anon_reveal_left = 0.0
+	blackout_active = false
+	delivery_spots.clear()
+	intranet_down = false
+	intranet_boost_left = 0.0
+
+
+func _tick_random_events(delta: float) -> void:
+	var max_events := Rules.EVENT_MAX_PER_SHORT if short_match else Rules.EVENT_MAX_PER_MATCH
+	if _event_count >= max_events:
+		_tick_ongoing_effects(delta)
+		return
+	if event_active != "":
+		_tick_active_event(delta)
+		return
+	if elapsed < Rules.EVENT_FIRST_DELAY:
+		return
+	if incident_active:
+		return
+	_event_timer -= delta
+	if _event_timer <= 0.0:
+		_trigger_random_event()
+	_tick_ongoing_effects(delta)
+
+
+func _tick_ongoing_effects(delta: float) -> void:
+	if anon_reveal_left > 0.0:
+		anon_reveal_left -= delta
+		if anon_reveal_left <= 0.0:
+			anon_reveal_slot = -1
+	if intranet_boost_left > 0.0:
+		intranet_boost_left -= delta
+		if intranet_boost_left <= 0.0:
+			intranet_boost_left = 0.0
+
+
+func _pick_random_event() -> String:
+	var pool := _event_pool.duplicate()
+	for used in _event_used:
+		pool.erase(used)
+	if pool.is_empty():
+		_event_used.clear()
+		pool = _event_pool.duplicate()
+	var total := 0
+	for e in pool:
+		total += _event_weights.get(e, 10)
+	var r := randi() % total
+	var acc := 0
+	for e in pool:
+		acc += _event_weights.get(e, 10)
+		if r < acc:
+			return e
+	return pool[-1]
+
+
+func _trigger_random_event() -> void:
+	var ev := _pick_random_event()
+	_event_used.append(ev)
+	_event_count += 1
+	match ev:
+		"anon_report":
+			_start_anon_report()
+		"blackout":
+			_start_blackout()
+		"delivery":
+			_start_delivery()
+		"intranet_down":
+			_start_intranet_down()
+	_event_timer = randf_range(Rules.EVENT_MIN_INTERVAL, Rules.EVENT_MAX_INTERVAL)
+
+
+func _tick_active_event(delta: float) -> void:
+	event_left -= delta
+	match event_active:
+		"blackout":
+			if event_left <= 0.0:
+				_end_blackout()
+		"delivery":
+			_tick_delivery(delta)
+		"intranet_down":
+			if event_left <= 0.0:
+				_end_intranet_down()
+
+
+# ── 匿名举报 ──
+
+func _start_anon_report() -> void:
+	var candidates := []
+	for s in Rules.EMPLOYEE_SLOTS:
+		if actors.has(s):
+			var a := actors[s] as Actor
+			if a.emp_state != Rules.EmpState.LEFT and a.emp_state != Rules.EmpState.WORK:
+				candidates.append(s)
+	if candidates.is_empty():
+		for s in Rules.EMPLOYEE_SLOTS:
+			if actors.has(s):
+				candidates.append(s)
+	if candidates.is_empty():
+		_event_timer = 10.0
+		_event_count -= 1
+		return
+	var target: int = candidates[randi() % candidates.size()]
+	anon_reveal_slot = target
+	anon_reveal_left = Rules.ANON_REPORT_REVEAL
+	notify_random_event.rpc("anon_report", {"slot": target})
+
+
+# ── 停电 ──
+
+func _start_blackout() -> void:
+	event_active = "blackout"
+	event_left = Rules.BLACKOUT_DURATION
+	blackout_active = true
+	for s in Rules.EMPLOYEE_SLOTS:
+		if actors.has(s):
+			var a := actors[s] as Actor
+			if a.emp_state == Rules.EmpState.WORK or a.emp_state == Rules.EmpState.SLACK:
+				if a.occupy_id != "" and office:
+					office.free_spot(a.occupy_id, s)
+				a.occupy_id = ""
+				a.emp_state = Rules.EmpState.WALK
+				a.velocity = Vector2.ZERO
+				a.tasking = false
+	notify_random_event.rpc("blackout", {"duration": Rules.BLACKOUT_DURATION})
+
+func _end_blackout() -> void:
+	blackout_active = false
+	event_active = ""
+	event_left = 0.0
+	notify_random_event_end.rpc("blackout")
+
+
+# ── 外卖到了 ──
+
+var _delivery_spawn_spots := [
+	Vector2(200, 400),
+	Vector2(400, 400),
+	Vector2(600, 400),
+	Vector2(1000, 400),
+]
+
+func _start_delivery() -> void:
+	event_active = "delivery"
+	event_left = Rules.DELIVERY_DURATION
+	delivery_spots.clear()
+	var spots := _delivery_spawn_spots.duplicate()
+	spots.shuffle()
+	for i in range(mini(Rules.DELIVERY_COUNT, spots.size())):
+		delivery_spots[i] = spots[i]
+	var spot_data := {}
+	for k in delivery_spots:
+		spot_data[str(k)] = {"x": delivery_spots[k].x, "y": delivery_spots[k].y}
+	notify_random_event.rpc("delivery", {"spots": spot_data, "duration": Rules.DELIVERY_DURATION})
+
+func _tick_delivery(_delta: float) -> void:
+	if event_left <= 0.0 or delivery_spots.is_empty():
+		_end_delivery()
+
+func _end_delivery() -> void:
+	delivery_spots.clear()
+	event_active = ""
+	event_left = 0.0
+	notify_random_event_end.rpc("delivery")
+
+func try_grab_delivery(slot: int) -> bool:
+	if delivery_spots.is_empty():
+		return false
+	var a := actors.get(slot) as Actor
+	if a == null:
+		return false
+	var best_key := -1
+	var best_dist := 999999.0
+	for k in delivery_spots:
+		var d: float = a.position.distance_to(delivery_spots[k])
+		if d < 80.0 and d < best_dist:
+			best_dist = d
+			best_key = k
+	if best_key < 0:
+		return false
+	delivery_spots.erase(best_key)
+	var is_boss := (slot == Rules.Slot.BOSS)
+	if not is_boss:
+		a.energy_cells = mini(a.energy_cells + 2, Rules.ENERGY_CELLS)
+		a.delivery_boost_left = Rules.DELIVERY_BOOST_TIME
+	notify_delivery_grab.rpc(slot, is_boss)
+	return true
+
+
+# ── 内网崩了 ──
+
+func _start_intranet_down() -> void:
+	event_active = "intranet_down"
+	event_left = Rules.INTRANET_DURATION
+	intranet_down = true
+	for s in Rules.EMPLOYEE_SLOTS:
+		if actors.has(s):
+			var a := actors[s] as Actor
+			if a.emp_state == Rules.EmpState.WORK or a.emp_state == Rules.EmpState.SLACK:
+				if a.occupy_id != "" and office:
+					office.free_spot(a.occupy_id, s)
+				a.occupy_id = ""
+				a.emp_state = Rules.EmpState.WALK
+				a.velocity = Vector2.ZERO
+				a.tasking = false
+	notify_random_event.rpc("intranet_down", {"duration": Rules.INTRANET_DURATION})
+
+func _end_intranet_down() -> void:
+	intranet_down = false
+	intranet_boost_left = Rules.INTRANET_BOOST_TIME
+	event_active = ""
+	event_left = 0.0
+	notify_random_event_end.rpc("intranet_down")
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_random_event(event_name: String, data: Dictionary) -> void:
+	random_event.emit(event_name, data)
+
+@rpc("authority", "call_local", "reliable")
+func notify_random_event_end(event_name: String) -> void:
+	random_event_ended.emit(event_name)
+
+@rpc("authority", "call_local", "reliable")
+func notify_delivery_grab(slot: int, is_boss: bool) -> void:
+	if actors.has(slot):
+		var a := actors[slot] as Actor
+		if not is_boss:
+			a.energy_cells = mini(a.energy_cells + 2, Rules.ENERGY_CELLS)
+			a.delivery_boost_left = Rules.DELIVERY_BOOST_TIME
+
+
 func on_clock_out(slot: int) -> void:
 	clock_log[slot] = elapsed
 	if _all_punched():
@@ -1179,6 +1459,7 @@ func reset_lobby() -> void:
 	countdown = 0.0
 	clock_log.clear()
 	result = {}
+	_reset_event_state()
 	for a in actors.values():
 		if is_instance_valid(a):
 			(a as Node).queue_free()
@@ -1236,6 +1517,21 @@ func apply_go_snapshot(snap: Dictionary) -> void:
 	incident_left = float(snap.get("incident_left", 0.0))
 	incident_blame_slot = int(snap.get("incident_blame", -1))
 	incident_terminal_pos = Vector2(float(snap.get("incident_x", 0.0)), float(snap.get("incident_y", 0.0)))
+	# 随机事件状态同步
+	event_active = str(snap.get("event_active", ""))
+	event_left = float(snap.get("event_left", 0.0))
+	anon_reveal_slot = int(snap.get("anon_reveal_slot", -1))
+	anon_reveal_left = float(snap.get("anon_reveal_left", 0.0))
+	blackout_active = bool(snap.get("blackout_active", false))
+	intranet_down = bool(snap.get("intranet_down", false))
+	intranet_boost_left = float(snap.get("intranet_boost_left", 0.0))
+	# delivery spots from Go snapshot
+	delivery_spots.clear()
+	var dspots: Dictionary = snap.get("delivery_spots", {})
+	for k in dspots.keys():
+		var arr: Array = dspots[k]
+		if arr.size() >= 2:
+			delivery_spots[int(k)] = Vector2(float(arr[0]), float(arr[1]))
 	var list: Array = snap.get("actors", [])
 	for item in list:
 		_ingest_go_actor(item)
@@ -1282,6 +1578,32 @@ func apply_go_event(ev: Dictionary) -> void:
 				bool(ev.get("interrupted", false)),
 				float(ev.get("facing", 1.0))
 			)
+		"anon_report":
+			random_event.emit("anon_report", {"slot": int(ev.get("slot", -1))})
+		"blackout":
+			blackout_active = true
+			random_event.emit("blackout", {"duration": Rules.BLACKOUT_DURATION})
+		"blackout_end":
+			blackout_active = false
+			random_event_ended.emit("blackout")
+		"delivery":
+			random_event.emit("delivery", {})
+		"delivery_end":
+			delivery_spots.clear()
+			random_event_ended.emit("delivery")
+		"delivery_grab":
+			var s := int(ev.get("slot", -1))
+			var got_food := bool(ev.get("on", false))
+			if got_food and actors.has(s):
+				var a := actors[s] as Actor
+				a.energy_cells = mini(a.energy_cells + 2, Rules.ENERGY_CELLS)
+				a.delivery_boost_left = Rules.DELIVERY_BOOST_TIME
+		"intranet_down":
+			intranet_down = true
+			random_event.emit("intranet_down", {"duration": Rules.INTRANET_DURATION})
+		"intranet_end":
+			intranet_down = false
+			random_event_ended.emit("intranet_down")
 
 
 func _ingest_go_actor(item: Dictionary) -> void:

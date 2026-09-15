@@ -67,6 +67,26 @@ const (
 	IncidentBossSpeedMul = 1.25
 	IncidentBossRangeMul = 1.4
 
+	// 随机事件
+	EventFirstDelay  = 60.0
+	EventMinInterval = 45.0
+	EventMaxInterval = 65.0
+
+	// 匿名举报
+	AnonReportReveal = 8.0
+
+	// 停电
+	BlackoutDuration = 25.0
+
+	// 外卖
+	DeliveryDuration = 15.0
+	DeliveryCount    = 2
+
+	// 内网崩了
+	IntranetDuration   = 20.0
+	IntranetBoostTime  = 5.0
+	IntranetBoostMul   = 1.5
+
 	TigerSpeedMul  = 1.15
 	EmployeeSpeed  = 168.0
 	BossBaseSpeed  = 182.0

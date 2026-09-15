@@ -319,6 +319,9 @@ func (a *Actor) tryEmployeeInteract(m *Match) {
 	if a.StandLock > 0 {
 		return
 	}
+	if m.TryGrabDelivery(a.Slot) {
+		return
+	}
 	if m.TryCarry(a) {
 		return
 	}
@@ -330,6 +333,9 @@ func (a *Actor) tryEmployeeInteract(m *Match) {
 	}
 	seat := m.Office.NearestSpot("seat", a.Pos, InteractRange)
 	if seat != "" {
+		if m.IntranetDown || m.BlackoutActive {
+			return
+		}
 		if m.Office.TakeSpot(seat, a.Slot) {
 			a.dismountBike(m)
 			a.State = StateWork
@@ -465,6 +471,7 @@ func (a *Actor) bossTick(m *Match, dt float64) {
 		a.Facing = a.Vel.Normalized()
 	}
 	if a.WantInteract {
+		m.TryGrabDelivery(a.Slot)
 		if !m.TryCatch(a) {
 			m.Office.TryDoor(a.Kind, a.Pos)
 		}

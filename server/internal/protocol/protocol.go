@@ -93,6 +93,14 @@ type Snapshot struct {
 	IncidentBlame  int           `json:"incident_blame,omitempty"`
 	IncidentX      float64       `json:"incident_x,omitempty"`
 	IncidentY      float64       `json:"incident_y,omitempty"`
+	EventActive    string        `json:"event_active,omitempty"`
+	EventLeft      float64       `json:"event_left,omitempty"`
+	AnonRevealSlot int           `json:"anon_reveal_slot,omitempty"`
+	AnonRevealLeft float64       `json:"anon_reveal_left,omitempty"`
+	BlackoutActive bool          `json:"blackout_active,omitempty"`
+	IntranetDown   bool          `json:"intranet_down,omitempty"`
+	IntranetBoostLeft float64         `json:"intranet_boost_left,omitempty"`
+	DeliverySpots     map[string][]float64 `json:"delivery_spots,omitempty"`
 }
 
 type ActorSnap struct {

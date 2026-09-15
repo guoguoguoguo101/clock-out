@@ -844,6 +844,26 @@ func _draw() -> void:
 		draw_line(Vector2(tp.x, tp.y + 22), Vector2(tp.x, tp.y + 32), Color(1.0, 0.25, 0.18, 0.6 * pulse), 1.5)
 		draw_line(Vector2(tp.x - 32, tp.y), Vector2(tp.x - 22, tp.y), Color(1.0, 0.25, 0.18, 0.6 * pulse), 1.5)
 		draw_line(Vector2(tp.x + 22, tp.y), Vector2(tp.x + 32, tp.y), Color(1.0, 0.25, 0.18, 0.6 * pulse), 1.5)
+
+	# 匿名举报 — Boss 视角箭头指向被举报者
+	if Match.anon_reveal_slot >= 0 and Match.actors.has(Match.anon_reveal_slot):
+		var my := Match.my_slot()
+		if my == Rules.Slot.BOSS:
+			var target: Actor = Match.actors[Match.anon_reveal_slot]
+			var tp2: Vector2 = target.global_position
+			var pulse2 := 0.6 + 0.4 * absf(sin(flicker_t * 3.5))
+			draw_circle(tp2, 28.0, Color(0.95, 0.55, 0.08, 0.25 * pulse2))
+			draw_circle(tp2, 18.0, Color(0.95, 0.65, 0.12, 0.45 * pulse2))
+			draw_circle(tp2, 6.0, Color(1.0, 0.85, 0.2, 0.8 * pulse2))
+
+	# 外卖标记
+	for k in Match.delivery_spots:
+		var dp: Vector2 = Match.delivery_spots[k]
+		var pulse3 := 0.5 + 0.5 * absf(sin(flicker_t * 4.0 + float(k) * 1.2))
+		draw_rect(Rect2(dp.x - 14, dp.y - 14, 28, 28), Color(0.92, 0.62, 0.12, 0.3 * pulse3))
+		draw_rect(Rect2(dp.x - 10, dp.y - 10, 20, 20), Color(0.95, 0.75, 0.2, 0.7 * pulse3))
+		draw_circle(dp, 4.0, Color(1.0, 0.9, 0.3, 0.9))
+
 	for i in steam_at.size():
 		var origin: Vector2 = steam_at[i]
 		for k in 3:

@@ -95,6 +95,7 @@ var blame_slot := -1
 var fix_progress := 0.0
 var fixing := false
 var blamed_once := false
+var delivery_boost_left := 0.0
 
 var input_dir := Vector2.ZERO
 var want_interact := false
@@ -207,6 +208,10 @@ func nearby_action() -> String:
 			return "E 帮忙修 Bug · 缩短事故时间"
 	if _is_riding():
 		return "F 下车才能交互"
+	if not Match.delivery_spots.is_empty():
+		for k in Match.delivery_spots:
+			if global_position.distance_to(Match.delivery_spots[k]) < 100.0:
+				return "E 抢外卖 · 回复精力 +3"
 	var map := office()
 	if map == null:
 		return ""
@@ -745,6 +750,7 @@ func _server_tick(delta: float) -> void:
 	play_lock = max(0.0, play_lock - delta)
 	incident_cd = max(0.0, incident_cd - delta)
 	blame_timer = max(0.0, blame_timer - delta)
+	delivery_boost_left = max(0.0, delivery_boost_left - delta)
 	if kind == Rules.Kind.EMPLOYEE:
 		_tick_cells(delta)
 	trade_cd = max(0.0, trade_cd - delta)
@@ -891,6 +897,10 @@ func _employee_tick(delta: float) -> void:
 		speed *= Rules.RESCUE_BOOST_MUL
 	if bike_left > 0.0:
 		speed *= Rules.BIKE_SPEED_MUL
+	if delivery_boost_left > 0.0:
+		speed *= Rules.DELIVERY_BOOST_MUL
+	if Match.intranet_boost_left > 0.0:
+		speed *= Rules.INTRANET_BOOST_MUL
 	speed = _slowed(speed)
 	if dash_left > 0.0:
 		velocity = dash_dir * _slowed(Rules.EMP_DASH_SPEED)
@@ -945,6 +955,11 @@ func _try_employee_interact() -> void:
 	if Match.incident_active and not fixing:
 		if Match.try_start_fix(self):
 			return
+	# 外卖
+	if not Match.delivery_spots.is_empty():
+		if Match.try_grab_delivery(slot):
+			say(Rules.DELIVERY_QUIPS[randi() % Rules.DELIVERY_QUIPS.size()], 1.5)
+			return
 	if Match.try_carry(self):
 		return
 	if Match.try_rescue(self):
@@ -954,6 +969,12 @@ func _try_employee_interact() -> void:
 		return
 	var seat := map.nearest_spot("seat", global_position, Rules.INTERACT_RANGE)
 	if seat != "":
+		if Match.intranet_down:
+			say("内网崩了，坐下也没用", 1.2)
+			return
+		if Match.blackout_active:
+			say("停电了，啥也干不了", 1.2)
+			return
 		if map.take_spot(seat, slot):
 			_dismount_bike()
 			emp_state = Rules.EmpState.WORK
@@ -1466,6 +1487,8 @@ func _boss_tick(delta: float) -> void:
 	if velocity.length() > 8.0:
 		_facing = velocity.normalized()
 	if want_interact:
+		if not Match.delivery_spots.is_empty():
+			Match.try_grab_delivery(slot)
 		if not Match.try_catch(self) and office():
 			office().try_door(self)
 	if office():
