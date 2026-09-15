@@ -795,8 +795,9 @@ func _build_join_page() -> void:
 
 
 func _build_char_page() -> void:
-	char_page = _panel(Rect2(140, 90, 1000, 540), Color(0.07, 0.04, 0.04, 0.96))
+	char_page = _panel(Rect2(40, 40, 1200, 640), Color(0.07, 0.04, 0.04, 0.96))
 	char_page.visible = false
+	char_page.z_index = 24
 	lobby.add_child(char_page)
 	var t := HauntTextScript.new()
 	t.name = "HauntH"
@@ -817,22 +818,23 @@ func _build_char_page() -> void:
 	d.base_color = Color(0.72, 0.58, 0.5)
 	char_page.add_child(d)
 	slot_box = HBoxContainer.new()
-	slot_box.position = Vector2(28, 100)
-	slot_box.size = Vector2(944, 320)
+	slot_box.position = Vector2(16, 96)
+	slot_box.size = Vector2(1168, 400)
+	slot_box.alignment = BoxContainer.ALIGNMENT_CENTER
 	slot_box.add_theme_constant_override("separation", 8)
 	char_page.add_child(slot_box)
 	var back := _lobby_btn("返回走廊", false)
-	back.position = Vector2(28, 460)
+	back.position = Vector2(16, 516)
 	back.size = Vector2(180, 48)
 	back.pressed.connect(func(): _show_lobby_page("home"))
 	char_page.add_child(back)
 	fill_bots_btn = _lobby_btn("空位全补 Bot", false)
-	fill_bots_btn.position = Vector2(220, 460)
+	fill_bots_btn.position = Vector2(208, 516)
 	fill_bots_btn.size = Vector2(220, 48)
 	fill_bots_btn.pressed.connect(_fill_bots)
 	char_page.add_child(fill_bots_btn)
 	var enter := _lobby_btn("确认身份 · 打卡上班", true)
-	enter.position = Vector2(640, 460)
+	enter.position = Vector2(860, 516)
 	enter.pressed.connect(_confirm_start)
 	char_page.add_child(enter)
 	enter_char_btn = enter
@@ -845,6 +847,10 @@ func _show_lobby_page(page: String) -> void:
 		join_page.visible = page == "join"
 	if char_page:
 		char_page.visible = page == "char"
+		if page == "char":
+			char_page.move_to_front()
+	if join_page and page == "join":
+		join_page.move_to_front()
 	if page == "char":
 		_refresh_lobby()
 
@@ -1177,7 +1183,7 @@ func _pick_slot(slot: int) -> void:
 		Net.claim(slot, name_edit.text)
 	elif Net.is_server or Net.connected:
 		Match.claim_local(slot, name_edit.text)
-	_refresh_lobby()
+	call_deferred("_rebuild_slot_cards")
 
 
 func _can_assign_bot() -> bool:
@@ -1251,6 +1257,10 @@ func _refresh_lobby() -> void:
 				cap.text = "确认占位 · 等主管开局"
 	if fill_bots_btn:
 		fill_bots_btn.visible = _can_assign_bot()
+	_rebuild_slot_cards()
+
+
+func _rebuild_slot_cards() -> void:
 	if slot_box == null:
 		return
 	for c in slot_box.get_children():
@@ -1263,12 +1273,14 @@ func _refresh_lobby() -> void:
 		elif pid > 0:
 			who = str(Match.names.get(pid, "工号%d" % pid))
 		var picked: int = int(s)
+		var wrap := VBoxContainer.new()
+		wrap.custom_minimum_size = Vector2(148, 380)
+		wrap.add_theme_constant_override("separation", 6)
 		var card := Button.new()
-		card.custom_minimum_size = Vector2(142, 286)
+		card.custom_minimum_size = Vector2(148, 300)
 		card.toggle_mode = true
 		card.button_pressed = picked == wanted_slot
 		card.clip_contents = false
-		card.rotation = -0.03 if s == Rules.Slot.BOSS else 0.02 * float((int(s) % 3) - 1)
 		card.pressed.connect(func(): _pick_slot(picked))
 		var sb := StyleBoxFlat.new()
 		sb.corner_radius_top_left = 3
@@ -1282,11 +1294,11 @@ func _refresh_lobby() -> void:
 		card.add_theme_stylebox_override("normal", sb)
 		card.add_theme_stylebox_override("hover", sb)
 		card.add_theme_stylebox_override("pressed", sb)
-		_add_slot_portrait(card, picked, Rect2(11, 10, 120, 168))
+		_add_slot_portrait(card, picked, Rect2(14, 8, 120, 168))
 		var nm := HauntTextScript.new()
 		nm.text = str(Rules.SLOT_NAMES[s])
-		nm.position = Vector2(4, 182)
-		nm.size = Vector2(134, 26)
+		nm.position = Vector2(4, 180)
+		nm.size = Vector2(140, 26)
 		nm.font_size = 14
 		nm.amp = 2.4
 		nm.align = HORIZONTAL_ALIGNMENT_CENTER
@@ -1295,22 +1307,22 @@ func _refresh_lobby() -> void:
 		var st := HauntTextScript.new()
 		st.text = who if s != Rules.Slot.BOSS else (who + " · 请勿对视")
 		st.position = Vector2(4, 208)
-		st.size = Vector2(134, 28)
+		st.size = Vector2(140, 44)
 		st.font_size = 11
 		st.amp = 2.0
 		st.wrap = true
 		st.align = HORIZONTAL_ALIGNMENT_CENTER
 		st.base_color = Color(0.78, 0.32, 0.26) if s == Rules.Slot.BOSS else Color(0.7, 0.58, 0.52)
 		card.add_child(st)
+		wrap.add_child(card)
 		if _can_assign_bot() and pid <= 0:
 			var bot_on := pid == 0
 			var bot_btn := Button.new()
 			bot_btn.text = "移出 Bot" if bot_on else "加 Bot"
-			bot_btn.position = Vector2(8, 240)
-			bot_btn.size = Vector2(126, 32)
+			bot_btn.custom_minimum_size = Vector2(148, 32)
 			bot_btn.pressed.connect(func(): _set_slot_bot(picked, not bot_on))
-			card.add_child(bot_btn)
-		slot_box.add_child(card)
+			wrap.add_child(bot_btn)
+		slot_box.add_child(wrap)
 
 
 func _on_started() -> void:
