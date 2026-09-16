@@ -6,6 +6,7 @@ const EnergyPlayScript := preload("res://src/ui/EnergyPlay.gd")
 const LobbyHauntScript := preload("res://src/ui/LobbyHaunt.gd")
 const HauntTextScript := preload("res://src/ui/HauntText.gd")
 const StockDeskScript := preload("res://src/ui/StockDesk.gd")
+const ShopPanelScript := preload("res://src/ui/ShopPanel.gd")
 const BODY_SHADER := preload("res://src/actor/body.gdshader")
 
 var office: OfficeMap
@@ -57,6 +58,9 @@ var event_banner: Label
 var event_timer_label: Label
 var blackout_veil: ColorRect
 var anon_arrow: Node2D
+var shop_panel: ShopPanel
+var coin_label: Label
+var item_hud_box: HBoxContainer
 var char_page: Control
 var haunt
 var room_code_edit: LineEdit
@@ -378,6 +382,35 @@ func _build_ui() -> void:
 	blackout_veil.color = Color(0.0, 0.0, 0.0, 0.0)
 	blackout_veil.visible = false
 	hud.add_child(blackout_veil)
+
+	# 商店面板
+	shop_panel = ShopPanelScript.new()
+	shop_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shop_panel.visible = false
+	hud.add_child(shop_panel)
+
+	# 金币显示
+	coin_label = Label.new()
+	coin_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	coin_label.offset_left = -140
+	coin_label.offset_top = 6
+	coin_label.offset_right = -8
+	coin_label.offset_bottom = 26
+	coin_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	coin_label.add_theme_font_size_override("font_size", 14)
+	coin_label.add_theme_color_override("font_color", Color(1.0, 0.88, 0.3))
+	coin_label.visible = false
+	hud.add_child(coin_label)
+
+	# 装备栏 HUD
+	item_hud_box = HBoxContainer.new()
+	item_hud_box.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	item_hud_box.offset_left = -240
+	item_hud_box.offset_top = -32
+	item_hud_box.offset_right = -8
+	item_hud_box.offset_bottom = -4
+	item_hud_box.visible = false
+	hud.add_child(item_hud_box)
 
 	hours_bar.z_index = 24
 	energy_bar.z_index = 24
@@ -2011,6 +2044,37 @@ func _update_camera(delta: float) -> void:
 		event_timer_label.text = "%.0fs" % ceilf(Match.event_left)
 	elif event_timer_label:
 		event_timer_label.visible = false
+	# 金币 + 装备栏 HUD
+	if coin_label and actor:
+		coin_label.visible = Match.playing
+		coin_label.text = "💰 %d" % actor.coins
+	if item_hud_box and actor and Match.playing:
+		item_hud_box.visible = true
+		# 动态刷新装备图标
+		while item_hud_box.get_child_count() < ItemDB.MAX_SLOTS:
+			var lbl := Label.new()
+			lbl.add_theme_font_size_override("font_size", 16)
+			lbl.custom_minimum_size = Vector2(72, 28)
+			lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			var bg2 := ColorRect.new()
+			bg2.color = Color(0.15, 0.18, 0.22, 0.7)
+			bg2.custom_minimum_size = Vector2(72, 28)
+			bg2.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			var ct := Control.new()
+			ct.custom_minimum_size = Vector2(72, 28)
+			ct.add_child(bg2)
+			ct.add_child(lbl)
+			item_hud_box.add_child(ct)
+		for i in range(ItemDB.MAX_SLOTS):
+			var ct := item_hud_box.get_child(i)
+			var lbl := ct.get_child(1) as Label
+			if i < actor.item_slots.size():
+				var d := ItemDB.get_item(actor.item_slots[i])
+				lbl.text = "%s%s" % [d.icon, d.name] if d else "?"
+			else:
+				lbl.text = "[ ]"
+	elif item_hud_box:
+		item_hud_box.visible = false
 	for i in mate_snow.size():
 		var snow := mate_snow[i]
 		if snow.color.a > 0.04:
@@ -2056,7 +2120,21 @@ func _edge_keys() -> void:
 	var actor := _local_actor()
 	var boss := actor != null and actor.kind == Rules.Kind.BOSS
 	if e and not _e_down:
-		_pulse_interact = true
+		# 商店交互
+		if shop_panel and shop_panel.visible:
+			pass  # 在商店里 E 不传递
+		elif actor != null and Match.elapsed >= ItemDB.SHOP_UNLOCK_TIME and office != null:
+			var near_shop := false
+			for key in ["shop_0", "shop_1"]:
+				if office.points.has(key) and actor.global_position.distance_to(office.points[key]) < Rules.INTERACT_RANGE + 16.0:
+					near_shop = true
+					break
+			if near_shop:
+				shop_panel.open(actor)
+			else:
+				_pulse_interact = true
+		else:
+			_pulse_interact = true
 	if f and not _f_down:
 		if boss:
 			_pulse_report = true

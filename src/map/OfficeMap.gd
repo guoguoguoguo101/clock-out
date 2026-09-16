@@ -213,6 +213,8 @@ func _build_furniture() -> void:
 	points["meeting"] = Vector2(2120, 1172)
 	points["lounge"] = Vector2(2000, 220)
 	points["stock_0"] = Vector2(2110, 328)
+	points["shop_0"] = Vector2(880, 198)
+	points["shop_1"] = Vector2(1740, 1048)
 	points["corridor"] = Vector2(1280, Rules.CORRIDOR_Y)
 	points["boss_spawn"] = Vector2(1280, Rules.CORRIDOR_Y)
 	var seats := [
@@ -864,6 +866,16 @@ func _draw() -> void:
 		draw_rect(Rect2(dp.x - 10, dp.y - 10, 20, 20), Color(0.95, 0.75, 0.2, 0.7 * pulse3))
 		draw_circle(dp, 4.0, Color(1.0, 0.9, 0.3, 0.9))
 
+	# 贩卖机标记
+	if Match.playing and Match.elapsed >= ItemDB.SHOP_UNLOCK_TIME:
+		for key in ["shop_0", "shop_1"]:
+			if points.has(key):
+				var sp: Vector2 = points[key]
+				var sp_pulse := 0.5 + 0.3 * absf(sin(flicker_t * 2.0))
+				draw_rect(Rect2(sp.x - 16, sp.y - 16, 32, 32), Color(0.2, 0.6, 0.9, 0.2 * sp_pulse))
+				draw_rect(Rect2(sp.x - 12, sp.y - 12, 24, 24), Color(0.25, 0.65, 0.95, 0.55))
+				draw_circle(sp, 3.0, Color(0.4, 0.85, 1.0, 0.9))
+
 	for i in steam_at.size():
 		var origin: Vector2 = steam_at[i]
 		for k in 3:
@@ -876,6 +888,7 @@ func _draw() -> void:
 func _build_labels() -> void:
 	_plaque(Vector2(80, 52), "厕所")
 	_plaque(Vector2(540, 52), "储物")
+	_plaque(Vector2(820, 52), "贩卖机")
 	_plaque(Vector2(1020, 52), "茶水间")
 	_plaque(Vector2(1740, 52), "休息角")
 	_plaque(Vector2(80, 800), "门厅 · 打卡")

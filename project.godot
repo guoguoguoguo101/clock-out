@@ -12,6 +12,7 @@ config/icon="res://icon.svg"
 Rules="*res://src/game/Rules.gd"
 Net="*res://src/net/Net.gd"
 Match="*res://src/game/Match.gd"
+ItemDB="*res://src/game/ItemDB.gd"
 
 [display]
 window/size/viewport_width=1280

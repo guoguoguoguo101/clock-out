@@ -97,6 +97,9 @@ func tick(delta: float) -> void:
 	if Match.elapsed > Rules.INCIDENT_UNLOCK + 5.0 and actor.incident_cd <= 0.0 and not Match.incident_active and wait <= 0.0:
 		actor.want_incident = true
 		wait = 12.0
+	# Bot 出装
+	if Match.elapsed >= ItemDB.SHOP_UNLOCK_TIME and actor.coins >= 25 and wait <= 0.0:
+		_bot_try_buy()
 
 
 func _talk_here() -> Actor:
@@ -123,3 +126,22 @@ func _find_prey() -> Actor:
 			best_d = d
 			best = e
 	return best
+
+
+func _bot_try_buy() -> void:
+	# 优先合成
+	var combinable := ItemDB.find_combinable(actor.item_slots, ItemDB.Side.BOSS)
+	for cid in combinable:
+		var cd := ItemDB.get_item(cid)
+		if cd and actor.coins >= cd.combine_cost:
+			actor.buy_item(cid)
+			return
+	# 买基础件
+	if actor.item_slots.size() >= ItemDB.MAX_SLOTS:
+		return
+	var pool := [ItemDB.B_CAMERA, ItemDB.B_SCANNER, ItemDB.B_ATTENDANCE, ItemDB.B_BRIEFCASE, ItemDB.B_OVERTIME]
+	pool.shuffle()
+	for pid in pool:
+		if actor.coins >= 25 and not actor.item_slots.has(pid):
+			actor.buy_item(pid)
+			return
