@@ -16,10 +16,17 @@ func tick(delta: float) -> void:
 		actor.input_dir = Vector2.ZERO
 		actor.want_interact = false
 		return
-	if actor.emp_state == Rules.EmpState.LEFT or actor.emp_state == Rules.EmpState.CLOCKING:
+	if actor.emp_state == Rules.EmpState.LEFT or actor.emp_state == Rules.EmpState.CLOCKING or actor.emp_state == Rules.EmpState.FIRED:
 		actor.input_dir = Vector2.ZERO
 		return
 	if actor.emp_state == Rules.EmpState.MEETING or actor.emp_state == Rules.EmpState.TALK:
+		actor.input_dir = Vector2.ZERO
+		if actor.emp_state == Rules.EmpState.MEETING:
+			actor.want_interact = true
+			return
+		actor.want_interact = absf(actor.play_t - actor.play_mark) <= Rules.REVIEW_STAMP_HIT
+		return
+	if actor.emp_state == Rules.EmpState.DRAGGED or actor.emp_state == Rules.EmpState.FIRED:
 		actor.input_dir = Vector2.ZERO
 		return
 	# 事故期间，责任人 Bot 去修 Bug
@@ -68,12 +75,15 @@ func tick(delta: float) -> void:
 	if actor.emp_state == Rules.EmpState.TRADE:
 		return
 	if actor.tasking:
+		if Match.is_supervised(actor) and actor.energy_survive_sec() < actor.task_remain_sec() + 0.4:
+			actor.input_dir = Vector2.DOWN
+			return
+		actor.input_dir = Vector2.ZERO
+		return
+	if actor.dizzy:
 		actor.input_dir = Vector2.ZERO
 		return
 	if actor.emp_state == Rules.EmpState.WORK or actor.emp_state == Rules.EmpState.SLACK:
-		if actor.energy_cells >= 1 and actor.emp_state == Rules.EmpState.WORK:
-			actor.want_interact = true
-			return
 		if actor.energy_cells <= 0:
 			actor.input_dir = Vector2.DOWN
 			return
@@ -92,7 +102,7 @@ func tick(delta: float) -> void:
 			actor.want_interact = true
 		return
 	if actor.energy_cells <= 0:
-		var loot := map.nearest_energy(actor.global_position, 2400.0)
+		var loot := map.nearest_energy(actor.global_position, 3600.0)
 		if loot != "":
 			_go(map.energy_pos(loot), delta)
 			if actor.global_position.distance_to(map.energy_pos(loot)) < Rules.INTERACT_RANGE:

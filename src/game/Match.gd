@@ -11,6 +11,8 @@ signal kpi_popup
 signal caught(slot: int, repeat: bool, add_hours: float)
 signal talked(slot: int)
 signal rescued(slot: int, by_slot: int)
+signal fired(slot: int)
+signal dragged(slot: int)
 signal stock_played(slot: int, pnl: float, energy_loss: float, boosted: bool)
 signal incident_started(blame_slot: int)
 signal incident_ended(fixed: bool, blame_slot: int)
@@ -50,11 +52,11 @@ var incident_terminal_pos := Vector2.ZERO
 var incident_fixed := false
 var incident_assist_count := 0
 var _incident_terminal_spots := [
-	Vector2(1280, 670),
-	Vector2(280, 670),
-	Vector2(2100, 670),
-	Vector2(730, 1000),
-	Vector2(1100, 1000),
+	Vector2(1776, 1008),
+	Vector2(800, 1008),
+	Vector2(2600, 1008),
+	Vector2(1776, 2200),
+	Vector2(3424, 1632),
 ]
 
 # ── 随机事件系统 ──
@@ -260,21 +262,28 @@ func _spawn_all() -> void:
 		var actor: Actor = _actor_scene.instantiate()
 		var pname := _name_for(pid, int(s))
 		actor.setup(int(s), pid, pname)
-		office.add_child(actor, true)
 		if int(s) == Rules.Slot.BOSS:
 			actor.global_position = office.points["boss_spawn"]
 		else:
-			var seat_i := Rules.employee_index(int(s)) + 1
-			var seat_id := "seat_%d" % seat_i
-			actor.global_position = office.seat_for_slot(int(s))
-			actor.emp_state = Rules.EmpState.WORK
-			actor.energy_cells = Rules.ENERGY_CELLS
+			var taken: Array[Vector2] = []
+			for a in actors.values():
+				var other := a as Actor
+				if other != null and other.kind == Rules.Kind.EMPLOYEE:
+					taken.append(other.global_position)
+			actor.global_position = office.roll_employee_spawn(taken)
+			actor._remote_pos = actor.global_position
+			actor.emp_state = Rules.EmpState.WALK
+			actor.energy_cells = Rules.ENERGY_START_CELLS
 			actor.energy_charge = 0.0
 			actor.tasks_done = 0
-			actor.occupy_id = seat_id
-			actor.last_seat = seat_i
-			office.take_spot(seat_id, int(s))
+			actor.dizzy = false
+			actor.dizzy_left = 0.0
+			actor.perf_hp = Rules.PERF_MAX
+			actor.occupy_id = ""
+			actor.last_seat = Rules.employee_index(int(s)) + 1
 			actor._refresh_legacy()
+		office.add_child(actor, true)
+		actor._remote_pos = actor.global_position
 		actors[int(s)] = actor
 		actor.coins = ItemDB.COIN_START
 		spawn_actor.rpc(int(s), pid, pname, actor.global_position.x, actor.global_position.y, actor.emp_state)
@@ -297,17 +306,23 @@ func spawn_actor(slot: int, pid: int, pname: String, x: float, y: float, st: int
 	actor.setup(slot, pid, pname)
 	office.add_child(actor, true)
 	actor.global_position = Vector2(x, y)
+	actor._remote_pos = actor.global_position
 	actor.emp_state = st
 	if Rules.slot_is_employee(slot):
-		actor.energy_cells = Rules.ENERGY_CELLS
+		actor.energy_cells = Rules.ENERGY_START_CELLS
 		actor.energy_charge = 0.0
 		actor.tasks_done = 0
 		actor.tasking = false
+		actor.dizzy = false
+		actor.dizzy_left = 0.0
+		actor.perf_hp = Rules.PERF_MAX
+		actor.occupy_id = ""
+		actor.last_seat = Rules.employee_index(slot) + 1
 		if st == Rules.EmpState.WORK:
-			var seat_id := "seat_%d" % (Rules.employee_index(slot) + 1)
+			var seat_id := "seat_%d" % actor.last_seat
 			actor.occupy_id = seat_id
-			actor.last_seat = Rules.employee_index(slot) + 1
 			office.take_spot(seat_id, slot)
+			actor._start_task()
 		actor._refresh_legacy()
 	actors[slot] = actor
 
@@ -346,7 +361,25 @@ func sync_cells(slot: int, done: int, progress: float, cells: int, charge: float
 
 
 @rpc("authority", "unreliable")
+func sync_status(slot: int, dizzy: int, perf: float, dragged: int, dragging: int, windup: float) -> void:
+	if multiplayer.is_server():
+		return
+	if not actors.has(slot):
+		return
+	var actor := actors[slot] as Actor
+	actor.dizzy = dizzy == 1
+	if not actor.dizzy:
+		actor.dizzy_left = 0.0
+	actor.perf_hp = perf
+	actor.dragged_by = dragged
+	actor.dragging_slot = dragging
+	actor.drag_windup = windup
+
+
+@rpc("authority", "unreliable")
 func sync_trade(slot: int, left: float, price: float, cash: float, shares: float, holding: bool, hist: PackedFloat32Array) -> void:
+	if multiplayer.is_server():
+		return
 	if not actors.has(slot):
 		return
 	(actors[slot] as Actor).apply_trade(left, price, cash, shares, holding, hist)
@@ -433,7 +466,11 @@ func is_catchable(emp: Actor) -> bool:
 func is_lunge_target(emp: Actor) -> bool:
 	if emp == null or emp.kind != Rules.Kind.EMPLOYEE:
 		return false
-	if emp.emp_state in [Rules.EmpState.LEFT, Rules.EmpState.TALK, Rules.EmpState.MEETING, Rules.EmpState.CLOCKING, Rules.EmpState.CARRIED]:
+	if emp.tasking:
+		return false
+	if emp.emp_state in [Rules.EmpState.LEFT, Rules.EmpState.FIRED, Rules.EmpState.TALK, Rules.EmpState.MEETING, Rules.EmpState.DRAGGED, Rules.EmpState.CLOCKING, Rules.EmpState.CARRIED]:
+		return false
+	if elapsed < Rules.CATCH_GRACE:
 		return false
 	return true
 
@@ -441,7 +478,7 @@ func is_lunge_target(emp: Actor) -> bool:
 func is_hold_target(emp: Actor) -> bool:
 	if emp == null or emp.kind != Rules.Kind.EMPLOYEE:
 		return false
-	return emp.emp_state == Rules.EmpState.TALK or emp.emp_state == Rules.EmpState.MEETING
+	return emp.emp_state == Rules.EmpState.TALK or emp.emp_state == Rules.EmpState.MEETING or emp.emp_state == Rules.EmpState.DRAGGED
 
 
 func is_meeting_target(emp: Actor) -> bool:
@@ -522,7 +559,10 @@ func grab_lunge(boss: Actor, emp: Actor) -> void:
 	spawn_fx(Rules.FX_CLAW, emp.global_position, 0.55, 0.12, -22.0)
 	spawn_fx(Rules.FX_STAMP, emp.global_position, 0.7, 0.1, -36.0)
 	audit_hit.rpc(emp.slot, boss.dash_dir.x, boss.dash_dir.y)
-	start_talk(emp)
+	if emp.perf_hp <= Rules.PERF_FIRE:
+		fire_employee(emp)
+	else:
+		start_talk(emp)
 	boss.add_coins(ItemDB.COIN_CATCH)
 	lunge_event.rpc(boss.slot, boss.dash_dir.x, boss.dash_dir.y, false)
 
@@ -546,9 +586,9 @@ func catch_employee(emp: Actor) -> void:
 func start_talk(emp: Actor) -> void:
 	if not multiplayer.is_server():
 		return
-	if emp.emp_state == Rules.EmpState.CLOCKING or emp.emp_state == Rules.EmpState.LEFT:
+	if emp.emp_state == Rules.EmpState.CLOCKING or emp.emp_state == Rules.EmpState.LEFT or emp.emp_state == Rules.EmpState.FIRED:
 		return
-	if emp.emp_state == Rules.EmpState.TALK or emp.emp_state == Rules.EmpState.MEETING:
+	if emp.emp_state == Rules.EmpState.TALK or emp.emp_state == Rules.EmpState.MEETING or emp.emp_state == Rules.EmpState.DRAGGED:
 		return
 	emp.begin_talk()
 	notify_talked.rpc(emp.slot)
@@ -559,18 +599,11 @@ func finish_talk(emp: Actor) -> void:
 		return
 	if emp.emp_state != Rules.EmpState.TALK:
 		return
-	var repeat := emp.catch_chain > 0.0
-	emp.apply_talk_fail(repeat)
-	notify_caught.rpc(emp.slot, repeat, 0.0)
+	emp.end_talk_deflected()
 
 
 func finish_meeting(emp: Actor) -> void:
-	if not multiplayer.is_server():
-		return
-	if emp.emp_state != Rules.EmpState.MEETING:
-		return
-	emp.apply_meeting_fail()
-	notify_caught.rpc(emp.slot, true, 0.0)
+	release_meeting(emp)
 
 
 # Prototype interaction: any available employee can take the pelican shuttle.
@@ -583,7 +616,7 @@ func nearest_carry_target(carrier: Actor) -> Actor:
 		var candidate := value as Actor
 		if candidate == carrier or candidate.kind != Rules.Kind.EMPLOYEE or candidate.carried_by >= 0:
 			continue
-		if candidate.emp_state in [Rules.EmpState.MEETING, Rules.EmpState.CLOCKING, Rules.EmpState.LEFT]:
+		if candidate.emp_state in [Rules.EmpState.MEETING, Rules.EmpState.CLOCKING, Rules.EmpState.LEFT, Rules.EmpState.DRAGGED, Rules.EmpState.FIRED]:
 			continue
 		var d := carrier.global_position.distance_to(candidate.global_position)
 		if d < distance and _can_see(carrier.global_position, candidate.global_position):
@@ -864,6 +897,22 @@ func carry_event(carrier_slot: int, passenger_slot: int, pickup: bool, pos: Vect
 		passenger.say("谢谢顺风嘴！" if not interrupted else "转运中断！", 1.4)
 
 
+func review_helper_count(vic: Actor) -> int:
+	if vic == null:
+		return 0
+	var n := 0
+	for a in actors.values():
+		var e := a as Actor
+		if e == null or e == vic or e.kind != Rules.Kind.EMPLOYEE:
+			continue
+		if e.rescue_slot != vic.slot or e.rescue_left <= 0.0:
+			continue
+		if e.global_position.distance_to(vic.global_position) > Rules.RESCUE_RANGE + 16.0:
+			continue
+		n += 1
+	return n
+
+
 func try_rescue(rescuer: Actor) -> bool:
 	if rescuer.stand_lock > 0.0 or rescuer.rescue_left > 0.0:
 		return false
@@ -873,8 +922,12 @@ func try_rescue(rescuer: Actor) -> bool:
 	if vic == null:
 		return false
 	rescuer.rescue_slot = vic.slot
-	rescuer.rescue_left = Rules.RESCUE_TIME
-	rescuer.say("我来捞", 0.8)
+	if vic.emp_state == Rules.EmpState.TALK:
+		rescuer.rescue_left = 99.0
+		rescuer.say("我来帮你填", 0.8)
+	else:
+		rescuer.rescue_left = Rules.RESCUE_TIME
+		rescuer.say("我来捞", 0.8)
 	return true
 
 
@@ -889,6 +942,10 @@ func tick_rescue(rescuer: Actor, delta: float) -> bool:
 	if rescuer.global_position.distance_to(vic.global_position) > Rules.RESCUE_RANGE + 16.0:
 		rescuer.clear_rescue()
 		return false
+	if vic.emp_state == Rules.EmpState.TALK:
+		vic.help_review(delta)
+		rescuer.rescue_left = maxf(rescuer.rescue_left, 1.0)
+		return true
 	rescuer.rescue_left -= delta
 	if rescuer.rescue_left <= 0.0:
 		complete_rescue(rescuer, vic)
@@ -966,6 +1023,8 @@ func trade_threat(emp: Actor) -> float:
 func try_meeting(boss: Actor) -> bool:
 	if not multiplayer.is_server() or not playing:
 		return false
+	if boss.dragging_slot >= 0 or boss.drag_windup > 0.0:
+		return false
 	if boss.power_pips < Rules.TIGER_POWER_MAX:
 		boss.say("势力不足 %d/3" % boss.power_pips, 0.8)
 		return false
@@ -973,17 +1032,88 @@ func try_meeting(boss: Actor) -> bool:
 		return false
 	var best := meeting_target(boss)
 	if best == null:
-		boss.say("附近没有正在约谈的人", 0.8)
+		boss.say("附近没有正在复盘的人", 0.8)
 		return false
 	boss.power_pips = 0
+	boss.dragging_slot = best.slot
+	boss.drag_windup = Rules.TIGER_DRAG_WINDUP
+	boss.ult_flash = Rules.TIGER_ULT_POSE
 	spawn_fx(Rules.FX_MEETING, boss.global_position, 0.9, 0.16, -40.0)
-	var dest: Vector2 = office.points.get("meeting", best.global_position)
+	boss.say("跟我去会议室。", 1.2)
+	meeting_pose.rpc(boss.slot)
+	dragged.emit(best.slot)
+	return true
+
+
+func attach_drag(boss: Actor, emp: Actor) -> void:
+	if not multiplayer.is_server() or emp == null:
+		return
+	if emp.emp_state != Rules.EmpState.TALK:
+		boss.dragging_slot = -1
+		return
+	emp.begin_dragged(boss)
+	boss.dragging_slot = emp.slot
+	boss.drag_windup = 0.0
+	boss.say("走。", 0.8)
+
+
+func bind_meeting(boss: Actor, emp: Actor) -> void:
+	if not multiplayer.is_server() or emp == null:
+		return
+	var dest: Vector2 = office.points.get("meeting", emp.global_position)
 	spawn_fx(Rules.FX_MEETING, dest, 1.1, 0.18, -20.0)
 	spawn_fx(Rules.FX_LOCK_RING, dest, 1.2, 0.2, 8.0)
-	best.send_to_meeting(Rules.TIGER_MEETING_TIME, dest)
-	boss.say("会议室，现在。", 1.2)
-	meeting_pose.rpc(boss.slot)
-	return true
+	emp.send_to_meeting(Rules.TIGER_MEETING_TIME, dest)
+	boss.dragging_slot = -1
+	boss.drag_windup = 0.0
+	boss.say("先坐着。", 1.0)
+
+
+func cancel_drag_on(emp: Actor) -> void:
+	if emp == null:
+		return
+	emp.dragged_by = -1
+	if not actors.has(Rules.Slot.BOSS):
+		return
+	var boss: Actor = actors[Rules.Slot.BOSS]
+	if boss.dragging_slot == emp.slot:
+		boss.dragging_slot = -1
+		boss.drag_windup = 0.0
+
+
+func release_meeting(emp: Actor) -> void:
+	if emp == null:
+		return
+	cancel_drag_on(emp)
+	emp.meeting_left = 0.0
+	emp.meet_qte_left = 0.0
+	if emp.emp_state == Rules.EmpState.FIRED or emp.emp_state == Rules.EmpState.LEFT:
+		return
+	emp.emp_state = Rules.EmpState.WALK
+	emp.say("散会了 · 腿还软", 1.2)
+	emp.slow_left = maxf(emp.slow_left, 1.4)
+
+
+func fire_employee(emp: Actor) -> void:
+	if not multiplayer.is_server() or emp == null:
+		return
+	if emp.emp_state == Rules.EmpState.FIRED or emp.emp_state == Rules.EmpState.LEFT:
+		return
+	cancel_drag_on(emp)
+	emp.tasking = false
+	emp.dizzy = false
+	emp.dizzy_left = 0.0
+	emp.perf_hp = 0.0
+	emp.emp_state = Rules.EmpState.FIRED
+	emp.say("你被开除了", 1.6)
+	notify_fired.rpc(emp.slot)
+	if _all_resolved():
+		_finish()
+
+
+@rpc("authority", "call_local", "reliable")
+func notify_fired(slot: int) -> void:
+	fired.emit(slot)
 
 
 func meeting_target(boss: Actor) -> Actor:
@@ -1073,7 +1203,7 @@ func paper_blocked(from: Vector2, to: Vector2) -> bool:
 func report_hittable(emp: Actor) -> bool:
 	if emp == null or emp.kind != Rules.Kind.EMPLOYEE:
 		return false
-	if emp.emp_state in [Rules.EmpState.LEFT, Rules.EmpState.TALK, Rules.EmpState.MEETING, Rules.EmpState.CARRIED]:
+	if emp.emp_state in [Rules.EmpState.LEFT, Rules.EmpState.TALK, Rules.EmpState.MEETING, Rules.EmpState.CARRIED, Rules.EmpState.DRAGGED, Rules.EmpState.FIRED]:
 		return false
 	return true
 
@@ -1172,7 +1302,7 @@ func _clear_reports() -> void:
 func cast_kpi() -> void:
 	for a in actors.values():
 		var e := a as Actor
-		if e.kind == Rules.Kind.EMPLOYEE and e.emp_state != Rules.EmpState.LEFT and e.emp_state != Rules.EmpState.CLOCKING:
+		if e.kind == Rules.Kind.EMPLOYEE and e.emp_state != Rules.EmpState.LEFT and e.emp_state != Rules.EmpState.FIRED and e.emp_state != Rules.EmpState.CLOCKING:
 			e.lose_task()
 	show_kpi.rpc()
 
@@ -1194,7 +1324,7 @@ func cast_incident(boss: Actor) -> bool:
 		var e := a as Actor
 		if e.kind != Rules.Kind.EMPLOYEE:
 			continue
-		if e.emp_state == Rules.EmpState.LEFT or e.emp_state == Rules.EmpState.CLOCKING:
+		if e.emp_state == Rules.EmpState.LEFT or e.emp_state == Rules.EmpState.CLOCKING or e.emp_state == Rules.EmpState.FIRED:
 			continue
 		if e.tasks_done > best_done:
 			best_done = e.tasks_done
@@ -1229,7 +1359,7 @@ func _tick_incident(delta: float) -> void:
 			continue
 		if e.kind != Rules.Kind.EMPLOYEE:
 			continue
-		if e.emp_state == Rules.EmpState.LEFT or e.emp_state == Rules.EmpState.TALK or e.emp_state == Rules.EmpState.MEETING:
+		if e.emp_state == Rules.EmpState.LEFT or e.emp_state == Rules.EmpState.TALK or e.emp_state == Rules.EmpState.MEETING or e.emp_state == Rules.EmpState.DRAGGED or e.emp_state == Rules.EmpState.FIRED:
 			e.fixing = false
 			e.fix_progress = 0.0
 			continue
@@ -1325,11 +1455,11 @@ func try_pass_blame(from: Actor) -> bool:
 		var e := a as Actor
 		if e == from or e.kind != Rules.Kind.EMPLOYEE:
 			continue
-		if e.emp_state == Rules.EmpState.LEFT or e.emp_state == Rules.EmpState.CLOCKING:
+		if e.emp_state == Rules.EmpState.LEFT or e.emp_state == Rules.EmpState.CLOCKING or e.emp_state == Rules.EmpState.FIRED:
 			continue
 		if e.blamed_once:
 			continue
-		if e.emp_state == Rules.EmpState.TALK or e.emp_state == Rules.EmpState.MEETING:
+		if e.emp_state == Rules.EmpState.TALK or e.emp_state == Rules.EmpState.MEETING or e.emp_state == Rules.EmpState.DRAGGED:
 			continue
 		var d := from.global_position.distance_to(e.global_position)
 		if d < best_d:
@@ -1541,10 +1671,10 @@ func _end_blackout() -> void:
 # ── 外卖到了 ──
 
 var _delivery_spawn_spots := [
-	Vector2(200, 400),
-	Vector2(400, 400),
-	Vector2(600, 400),
-	Vector2(1000, 400),
+	Vector2(240, 1632),
+	Vector2(420, 1800),
+	Vector2(384, 1260),
+	Vector2(800, 1152),
 ]
 
 func _start_delivery() -> void:
@@ -1681,19 +1811,24 @@ func _tick_item_passives(delta: float) -> void:
 
 func on_clock_out(slot: int) -> void:
 	clock_log[slot] = elapsed
-	if _all_punched():
+	if _all_resolved():
 		_finish()
 
 
-func _all_punched() -> bool:
+func _all_resolved() -> bool:
 	var any := false
 	for s in Rules.EMPLOYEE_SLOTS:
 		if not actors.has(s):
 			continue
 		any = true
-		if (actors[s] as Actor).emp_state != Rules.EmpState.LEFT:
+		var st: int = (actors[s] as Actor).emp_state
+		if st != Rules.EmpState.LEFT and st != Rules.EmpState.FIRED:
 			return false
 	return any
+
+
+func _all_punched() -> bool:
+	return _all_resolved()
 
 
 func _finish() -> void:
@@ -1717,6 +1852,7 @@ func _finish() -> void:
 			"slot": s,
 			"name": actor.display_name,
 			"win": win,
+			"fired": actor.emp_state == Rules.EmpState.FIRED,
 			"time": clock_log.get(s, -1.0),
 		})
 	var boss_verdict := "胜"

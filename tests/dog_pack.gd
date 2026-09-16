@@ -22,6 +22,7 @@ func run_checks() -> void:
 	game._enter_test_room()
 	await physics_frame
 	match_node.bots.clear()
+	match_node.elapsed = rules.CATCH_GRACE + 1.0
 	var dog = match_node.actors[rules.Slot.EMP_D]
 	var horse = match_node.actors[rules.Slot.EMP_A]
 	var boss = match_node.actors[rules.Slot.BOSS]
@@ -81,6 +82,7 @@ func run_checks() -> void:
 	match_node.hit_lunge_bro(boss, boss.global_position, dog.global_position)
 	check(dog.pack_hp == 0, "three soaks empty the pack")
 	check(not match_node.hit_lunge_bro(boss, boss.global_position, dog.global_position), "empty pack no longer intercepts")
+	boss.global_position = dog.global_position + Vector2(72, 0)
 	var hit = match_node.lunge_victim(boss, boss.global_position, dog.global_position)
 	check(hit == dog, "fourth lunge reaches the dog")
 	dog.pack_cd = 0.0

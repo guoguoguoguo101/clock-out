@@ -3,10 +3,10 @@ package sim
 // Keep in sync with src/game/Rules.gd
 
 const (
-	MapW = 2560.0
-	MapH = 1520.0
+	MapW = 4096.0
+	MapH = 2816.0
 
-	CorridorY = 670.0
+	CorridorY = 1008.0
 	TopY      = 560.0
 	BotY      = 780.0
 	XToilet   = 500.0

@@ -202,6 +202,7 @@ HTML = """<!DOCTYPE html>
     .tabs button, .copy {
       border:1px solid var(--line); background:var(--panel); color:var(--ink);
       border-radius:999px; padding:6px 12px; cursor:pointer; font-size:12px;
+      text-decoration:none; display:inline-flex; align-items:center;
     }
     .tabs button.on { background:var(--accent); color:#072026; border-color:var(--accent); font-weight:650; }
     .tabs button[data-id="archived"].on { background:var(--warn); color:#2a1e00; border-color:var(--warn); }
@@ -264,6 +265,8 @@ HTML = """<!DOCTYPE html>
     <h1>六点下班 · 素材预览</h1>
     <div class="meta" id="meta"></div>
   </div>
+  <a class="copy" href="fx.html">过场预览</a>
+  <a class="copy" href="sprites.html">角色精灵</a>
   <input id="q" type="search" placeholder="搜文件名 / 路径" />
   <div class="tabs" id="tabs"></div>
 </header>

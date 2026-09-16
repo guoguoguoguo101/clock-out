@@ -27,10 +27,21 @@ func run_checks() -> void:
 	game._pick_slot(rules.Slot.EMP_A)
 	game._enter_test_room()
 	await physics_frame
+	var office = game.office
 	check(match_node.actors.size() == 5, "test room spawns one boss and four employees")
 	check(match_node.actors[rules.Slot.EMP_A].skin == rules.CharSkin.HORSE, "EMP_A is horse")
 	check(match_node.actors[rules.Slot.EMP_B].skin == rules.CharSkin.PELICAN, "EMP_B is pelican")
 	check(match_node.actors[rules.Slot.EMP_C].skin == rules.CharSkin.KANGAROO, "EMP_C is kangaroo")
 	check(match_node.actors[rules.Slot.EMP_D].skin == rules.CharSkin.DOG, "EMP_D is dog")
+	var seen: Array[Vector2] = []
+	for s in rules.EMPLOYEE_SLOTS:
+		var emp = match_node.actors[s]
+		check(emp.emp_state == rules.EmpState.WALK, "employee %d starts walking, not working" % s)
+		check(emp.energy_cells == rules.ENERGY_START_CELLS, "employee %d starts with 3 energy" % s)
+		check(str(emp.occupy_id) == "", "employee %d is not already seated" % s)
+		check(emp.global_position.distance_to(office.seat_for_slot(s)) > 40.0, "employee %d is not spawned on their desk" % s)
+		for p in seen:
+			check(emp.global_position.distance_to(p) > 40.0, "employee spawns are spread out")
+		seen.append(emp.global_position)
 	print("1V4 ROSTER CHECKS FINISHED failures=", failures)
 	quit(1 if failures else 0)

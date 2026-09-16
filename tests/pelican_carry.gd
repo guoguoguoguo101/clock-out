@@ -26,16 +26,18 @@ func run_checks() -> void:
 	var passenger = match_node.actors[rules.Slot.EMP_A]
 	var boss = match_node.actors[rules.Slot.BOSS]
 	carrier._stand_up()
+	passenger._stand_up()
 	carrier.global_position = game.office.points["corridor"]
 	passenger.global_position = carrier.global_position + Vector2(40, 0)
 	boss.global_position = Vector2(200, 200)
 	carrier.input_dir = Vector2.ZERO
 	var seat: String = passenger.occupy_id
 	await physics_frame
-	check(match_node.nearest_carry_target(carrier) == passenger, "nearby seated employee selected")
+	check(match_node.nearest_carry_target(carrier) == passenger, "nearby employee selected")
 	carrier._try_employee_interact()
 	check(carrier.carrying_slot == passenger.slot and passenger.carried_by == carrier.slot, "E picks up employee")
-	check(game.office.occupiers[seat] == -1, "pickup frees occupied seat")
+	if seat != "":
+		check(game.office.occupiers[seat] == -1, "pickup frees occupied seat")
 	check(passenger.emp_state == rules.EmpState.CARRIED, "passenger enters carried state")
 	check(match_node.is_catchable(carrier), "boss can catch loaded pelican")
 	check(not match_node.try_carry(carrier), "cannot carry a second passenger")

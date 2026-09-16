@@ -18,6 +18,17 @@ func tick(delta: float) -> void:
 	if actor.lunge_left > 0.0 or actor.lunge_stun > 0.0:
 		actor.input_dir = Vector2.ZERO
 		return
+	if actor.drag_windup > 0.0:
+		actor.input_dir = Vector2.ZERO
+		return
+	if actor.dragging_slot >= 0:
+		var dest: Vector2 = map.points.get("meeting", actor.global_position)
+		var door = map.nearest_door(actor.global_position, 56.0)
+		if door != null and door.closed:
+			map.try_door(actor)
+		var d := map.path_to(actor.global_position, dest) - actor.global_position
+		actor.input_dir = d.normalized() if d.length() > 10.0 else Vector2.ZERO
+		return
 	var door = map.nearest_door(actor.global_position, 70.0)
 	if door != null and (door.closed or door.opening):
 		var dd = door.global_position - actor.global_position
@@ -123,9 +134,15 @@ func _find_prey() -> Actor:
 		var e := a as Actor
 		if not Match.is_lunge_target(e):
 			continue
-		var d := e.global_position.distance_to(actor.global_position)
-		if d < best_d:
-			best_d = d
+		if e.tasking:
+			continue
+		var score := e.global_position.distance_to(actor.global_position)
+		if e.dizzy:
+			score *= 0.55
+		if e.emp_state == Rules.EmpState.COFFEE or e.emp_state == Rules.EmpState.TOILET or e.play_kind != "":
+			score *= 0.7
+		if score < best_d:
+			best_d = score
 			best = e
 	return best
 

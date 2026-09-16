@@ -122,7 +122,10 @@ def aligned_layers(src: Image.Image) -> tuple[np.ndarray, np.ndarray, dict]:
 
 def poses_for(ride: bool, only: list[str] | None = None) -> list[str]:
     if only:
-        anims = tuple(a.strip() for a in only if a.strip())
+        items = [a.strip() for a in only if a.strip()]
+        if items and all("_" in a and a.rsplit("_", 1)[-1].isdigit() for a in items):
+            return items
+        anims = tuple(items)
     else:
         anims = ANIMS + (("ride",) if ride else ())
     return [f"{anim}_{i}" for anim in anims for i in range(4)]

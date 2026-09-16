@@ -12,7 +12,7 @@ func _ready() -> void:
 	z_as_relative = false
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	position = Vector2.ZERO
-	size = Vector2(2560, 1520)
+	size = Rules.MAP_SIZE
 	color = Color(1, 1, 1, 1)
 	var mat := ShaderMaterial.new()
 	mat.shader = FOG_SHADER
@@ -41,16 +41,16 @@ func _process(delta: float) -> void:
 	var k := 1.0 - exp(-9.0 * delta)
 	hole.position = hole.position.lerp(_target.position, k)
 	hole.size = hole.size.lerp(_target.size, k)
-	var ink := 0.78
-	var soft := 88.0
+	var ink := 0.10
+	var soft := 110.0
 	if me.kind == Rules.Kind.EMPLOYEE:
-		ink = 0.985
-		soft = 58.0 - threat * 18.0
+		ink = 0.20 + threat * 0.12
+		soft = 92.0 - threat * 12.0
 	var mat := material as ShaderMaterial
 	if mat:
 		mat.set_shader_parameter("hole", Vector4(hole.position.x, hole.position.y, hole.size.x, hole.size.y))
-		mat.set_shader_parameter("map_size", Vector2(2560, 1520))
+		mat.set_shader_parameter("map_size", Rules.MAP_SIZE)
 		mat.set_shader_parameter("softness", soft)
 		mat.set_shader_parameter("ink_alpha", ink)
 		mat.set_shader_parameter("threat", threat)
-		mat.set_shader_parameter("grain", 0.28 if me.kind == Rules.Kind.EMPLOYEE else 0.08)
+		mat.set_shader_parameter("grain", 0.08 if me.kind == Rules.Kind.EMPLOYEE else 0.03)

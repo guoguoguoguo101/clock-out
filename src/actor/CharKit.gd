@@ -20,6 +20,11 @@ const TRADE := ["trade_0", "trade_1"]
 const LUNGE := ["lunge_0", "lunge_1", "lunge_2", "lunge_3"]
 const THROW := ["throw_0", "throw_1", "throw_2", "throw_3"]
 const ULT := ["ult_0", "ult_1", "ult_2", "ult_3"]
+const REVIEW := ["review_0"]
+const DRAGGED := ["dragged_0"]
+const MEETING := ["meeting_0"]
+const DRAG := ["walk_0", "walk_1", "walk_2", "walk_3"]
+const HELP := ["help_0"]
 const FALLBACK := {
 	"work": "work_0",
 	"sleep": "sleep_0",
@@ -30,6 +35,11 @@ const FALLBACK := {
 	"throw": "idle_0",
 	"ult": "idle_0",
 	"audit_hit": "idle_0",
+	"review": "idle_0",
+	"dragged": "idle_0",
+	"meeting": "work_0",
+	"drag": "walk_0",
+	"help": "idle_0",
 }
 
 static var _cache: Dictionary = {}
@@ -73,6 +83,10 @@ static func scarf_tex(skin: int, pose: String) -> Texture2D:
 		var fb := "idle_0"
 		if pose.begins_with("lunge"):
 			fb = "run_0"
+		elif pose.begins_with("drag") and not pose.begins_with("dragged"):
+			fb = "walk_0"
+		elif pose.begins_with("review") or pose.begins_with("audit_hit") or pose.begins_with("help"):
+			fb = "idle_0"
 		tex = _try_tex("res://assets/game/chars/%s/scarf/%s.png" % [pack, fb])
 	_cache[key] = tex
 	return tex
@@ -90,7 +104,15 @@ static func _load_pose(pack: String, pose: String) -> Texture2D:
 		fb = "run_0"
 	elif pose.begins_with("throw") or pose.begins_with("ult"):
 		fb = "idle_0"
-	elif pose.begins_with("audit_hit"):
+	elif pose.begins_with("audit_hit") or pose.begins_with("review"):
+		fb = "idle_0"
+	elif pose.begins_with("dragged"):
+		fb = "run_0"
+	elif pose.begins_with("meeting"):
+		fb = "work_0"
+	elif pose.begins_with("drag"):
+		fb = "walk_0"
+	elif pose.begins_with("help"):
 		fb = "idle_0"
 	tex = _try_tex("res://assets/game/chars/%s/%s.png" % [pack, fb])
 	if tex != null:
@@ -124,5 +146,15 @@ static func loop_frames(anim: String) -> PackedStringArray:
 			return PackedStringArray(THROW)
 		"ult":
 			return PackedStringArray(ULT)
+		"review":
+			return PackedStringArray(REVIEW)
+		"dragged":
+			return PackedStringArray(DRAGGED)
+		"meeting":
+			return PackedStringArray(MEETING)
+		"drag":
+			return PackedStringArray(DRAG)
+		"help":
+			return PackedStringArray(HELP)
 		_:
 			return PackedStringArray(IDLE)

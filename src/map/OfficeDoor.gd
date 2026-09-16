@@ -33,9 +33,8 @@ func setup(id: String, pos: Vector2, p_title: String) -> void:
 	_lintel()
 	sprite = Sprite2D.new()
 	sprite.texture = null
-	var img := Image.load_from_file(ProjectSettings.globalize_path("res://assets/game/props/horror/door.png"))
-	if img != null and not img.is_empty():
-		sprite.texture = ImageTexture.create_from_image(img)
+	if ResourceLoader.exists("res://assets/game/props/campus/divider.png"):
+		sprite.texture = load("res://assets/game/props/campus/divider.png")
 	sprite.centered = true
 	sprite.position = Vector2(0, -6)
 	if sprite.texture:
@@ -45,11 +44,11 @@ func setup(id: String, pos: Vector2, p_title: String) -> void:
 	add_child(sprite)
 	plate = Label.new()
 	plate.text = title
-	plate.position = Vector2(-28, -52)
-	plate.size = Vector2(56, 14)
+	plate.position = Vector2(-36, -52)
+	plate.size = Vector2(72, 14)
 	plate.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	plate.add_theme_font_size_override("font_size", 10)
-	plate.add_theme_color_override("font_color", Color(0.86, 0.88, 0.90))
+	plate.add_theme_color_override("font_color", Color(0.38, 0.48, 0.54))
 	plate.z_index = 4
 	add_child(plate)
 	_apply_visual()
@@ -57,7 +56,7 @@ func setup(id: String, pos: Vector2, p_title: String) -> void:
 
 func _jamb(pos: Vector2, size: Vector2) -> ColorRect:
 	var r := ColorRect.new()
-	r.color = Color(0.18, 0.16, 0.16)
+	r.color = Color(0.82, 0.88, 0.90)
 	r.position = pos
 	r.size = size
 	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -68,13 +67,13 @@ func _jamb(pos: Vector2, size: Vector2) -> ColorRect:
 
 func _lintel() -> void:
 	var cap := ColorRect.new()
-	cap.color = Color(0.22, 0.12, 0.12)
+	cap.color = Color(0.90, 0.93, 0.94)
 	cap.position = Vector2(-56, -34)
 	cap.size = Vector2(112, 10)
 	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(cap)
 	var exit := ColorRect.new()
-	exit.color = Color(0.72, 0.12, 0.14)
+	exit.color = Color(0.62, 0.78, 0.76)
 	exit.position = Vector2(-22, -50)
 	exit.size = Vector2(44, 12)
 	exit.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -143,14 +142,14 @@ func _apply_visual() -> void:
 		var t := 1.0 - clampf(open_left / Rules.DOOR_OPEN_TIME, 0.0, 1.0)
 		sprite.rotation_degrees = lerpf(0.0, -68.0, t)
 		sprite.position = Vector2(lerpf(0.0, 28.0, t), -6)
-		sprite.modulate = Color(0.72, 0.74, 0.76)
+		sprite.modulate = Color(0.88, 0.92, 0.93)
 	elif closed:
 		sprite.rotation_degrees = 0.0
 		sprite.position = Vector2(0, -6)
-		sprite.modulate = Color(0.82, 0.84, 0.86)
+		sprite.modulate = Color(0.94, 0.96, 0.97)
 	else:
 		sprite.rotation_degrees = -68.0
 		sprite.position = Vector2(28, -6)
-		sprite.modulate = Color(0.62, 0.64, 0.66)
+		sprite.modulate = Color(0.80, 0.86, 0.88)
 	if plate:
-		plate.modulate = Color(1, 0.45, 0.42) if closed else Color(0.86, 0.88, 0.90)
+		plate.modulate = Color(0.72, 0.38, 0.32) if closed else Color(0.38, 0.48, 0.54)

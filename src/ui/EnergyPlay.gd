@@ -37,9 +37,9 @@ func _ready() -> void:
 	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(art)
-	title = _lab(22, Color(0.96, 0.90, 0.78))
-	hint = _lab(15, Color(0.78, 0.74, 0.66))
-	flash = _lab(20, Color(1.0, 0.82, 0.42))
+	title = _lab(26, Color(0.96, 0.90, 0.78))
+	hint = _lab(16, Color(0.78, 0.74, 0.66))
+	flash = _lab(22, Color(1.0, 0.82, 0.42))
 	track = ColorRect.new()
 	track.color = Color(0.18, 0.16, 0.14, 0.95)
 	track.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -74,24 +74,24 @@ func _layout() -> void:
 	var vp := get_viewport_rect().size
 	if vp.x < 8.0:
 		return
-	var w := minf(vp.x * 0.46, 520.0)
-	var h := 220.0
-	panel.position = Vector2((vp.x - w) * 0.5, vp.y * 0.58)
+	var w := minf(vp.x * 0.64, 760.0)
+	var h := 300.0
+	panel.position = Vector2((vp.x - w) * 0.5, vp.y * 0.52)
 	panel.size = Vector2(w, h)
-	art.position = Vector2(16, 36)
-	art.size = Vector2(88, 88)
-	title.position = Vector2(110, 16)
-	title.size = Vector2(w - 130, 32)
-	hint.position = Vector2(16, h - 36)
-	hint.size = Vector2(w - 32, 24)
-	flash.position = Vector2(110, 48)
-	flash.size = Vector2(w - 140, 28)
-	track.position = Vector2(110, 92)
-	track.size = Vector2(w - 140, 18)
-	zone.size = Vector2(70, 18)
-	needle.size = Vector2(6, 22)
-	fill.position = Vector2(110, 124)
-	fill.size = Vector2(0, 10)
+	art.position = Vector2(24, 48)
+	art.size = Vector2(120, 120)
+	title.position = Vector2(160, 20)
+	title.size = Vector2(w - 184, 36)
+	hint.position = Vector2(24, h - 44)
+	hint.size = Vector2(w - 48, 28)
+	flash.position = Vector2(160, 62)
+	flash.size = Vector2(w - 184, 32)
+	track.position = Vector2(160, 118)
+	track.size = Vector2(w - 200, 28)
+	zone.size = Vector2(88, 28)
+	needle.size = Vector2(8, 36)
+	fill.position = Vector2(160, 164)
+	fill.size = Vector2(0, 16)
 
 
 func bind(actor: Actor) -> void:
@@ -135,14 +135,14 @@ func bind(actor: Actor) -> void:
 			art.texture = _snack_tex()
 			_hide_timing()
 			fill.visible = true
-			fill.size = Vector2((panel.size.x - 140.0) * (float(_hits) / 5.0), 10)
+			fill.size = Vector2((panel.size.x - 200.0) * (float(_hits) / 5.0), 16)
 		"water":
 			title.text = "饮水机 · 接一杯清醒"
 			hint.text = "水位晃到刚好满时按 F    满溢就洒了"
 			art.texture = Rules.tex("res://assets/game/props/energy/water_cup.png")
 			_hide_timing()
 			fill.visible = true
-			fill.size = Vector2((panel.size.x - 140.0) * clampf(_t, 0.0, 1.0), 10)
+			fill.size = Vector2((panel.size.x - 200.0) * clampf(_t, 0.0, 1.0), 16)
 		_:
 			visible = false
 
@@ -165,8 +165,8 @@ func _show_timing(zone_col: Color) -> void:
 	zone.color = zone_col
 	var z0 := clampf(_mark - 0.11, 0.04, 0.72)
 	zone.position = track.position + Vector2(tw * z0, 0)
-	zone.size = Vector2(tw * 0.22, 18)
-	needle.position = track.position + Vector2(tw * clampf(_t, 0.0, 1.0) - 3.0, -2)
+	zone.size = Vector2(tw * 0.22, 28)
+	needle.position = track.position + Vector2(tw * clampf(_t, 0.0, 1.0) - 4.0, -4)
 
 
 func _hide_timing() -> void:

@@ -27,10 +27,10 @@ func run_checks() -> void:
 	check(bird.skin == rules.CharSkin.PELICAN, "EMP_B is pelican")
 	bird._stand_up()
 	horse._stand_up()
-	var door = game.office.nearest_door(Vector2(1340, 554), 24.0)
+	var door = game.office.door_by_id("tea")
 	check(door != null, "tea door exists")
 	door.slam()
-	bird.global_position = Vector2(1340, 640)
+	bird.global_position = door.global_position + Vector2(0, 80)
 	horse.global_position = bird.global_position + Vector2(36, 0)
 	bird.input_dir = Vector2(0, -1)
 	bird._facing = Vector2(0, -1)
@@ -49,7 +49,7 @@ func run_checks() -> void:
 	var start_y: float = bird.global_position.y
 	await create_timer(0.5).timeout
 	check(bird.fly_left <= 0.0, "fly ends after burst")
-	check(bird.global_position.y < 530.0, "fly crossed the closed tea door")
+	check(bird.global_position.y < door.global_position.y, "fly crossed the closed tea door")
 	check(bird.global_position.y < start_y - 80.0, "fly travels forward")
 	check(bird.collision_mask == 1, "landing restores collision")
 	check(not bird._blocked_at(bird.global_position), "landing is walkable")
@@ -58,7 +58,7 @@ func run_checks() -> void:
 	check(not bird._try_start_fly(), "cooldown blocks a second fly")
 	check(bird.fly_cd <= saved_cd + 0.05, "cooldown still ticking")
 	bird.fly_cd = 0.0
-	bird.global_position = Vector2(1340, 640)
+	bird.global_position = door.global_position + Vector2(0, 80)
 	horse.global_position = bird.global_position + Vector2(36, 0)
 	await physics_frame
 	check(match_node.try_carry(bird), "can pick up colleague before fly")
@@ -69,6 +69,6 @@ func run_checks() -> void:
 	await create_timer(0.5).timeout
 	check(horse.carried_by == bird.slot, "passenger stays in beak during fly")
 	check(horse.global_position.distance_to(bird.global_position) < 8.0, "passenger is carried over the wall")
-	check(bird.global_position.y < 530.0, "loaded fly still crosses the door")
+	check(bird.global_position.y < door.global_position.y, "loaded fly still crosses the door")
 	print("FLY CHECKS FINISHED failures=", failures)
 	quit(1 if failures else 0)

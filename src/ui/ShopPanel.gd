@@ -155,7 +155,7 @@ func _refresh() -> void:
 				price_text = "合成 %d 币（缺材料）" % d.cost
 		btn.text = "%s %s\n%s" % [d.icon, d.name, price_text]
 		btn.tooltip_text = d.desc
-		var item_id := d.id
+		var item_id: int = d.id
 		btn.pressed.connect(func(): _on_buy(item_id))
 		btn.mouse_entered.connect(func(): _show_desc(item_id))
 		# 能否买得起
