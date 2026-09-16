@@ -52,6 +52,10 @@ func tick(delta: float) -> void:
 				actor.want_interact = true
 			return
 	think -= delta
+	# Bot 出装
+	if Match.elapsed >= ItemDB.SHOP_UNLOCK_TIME and actor.coins >= 25 and think <= -2.0:
+		_bot_try_buy()
+		think = 3.0
 	if actor.rescue_left > 0.0:
 		actor.input_dir = Vector2.ZERO
 		return
@@ -129,3 +133,20 @@ func _find_rescue() -> Actor:
 		if actor.global_position.distance_to(e.global_position) < 420.0:
 			return e
 	return null
+
+
+func _bot_try_buy() -> void:
+	var combinable := ItemDB.find_combinable(actor.item_slots, ItemDB.Side.EMPLOYEE)
+	for cid in combinable:
+		var cd := ItemDB.get_item(cid)
+		if cd and actor.coins >= cd.combine_cost:
+			actor.buy_item(cid)
+			return
+	if actor.item_slots.size() >= ItemDB.MAX_SLOTS:
+		return
+	var pool := [ItemDB.E_STICKYNOTE, ItemDB.E_SNEAKERS, ItemDB.E_POWERBANK, ItemDB.E_EARPHONE, ItemDB.E_DAYOFF]
+	pool.shuffle()
+	for pid in pool:
+		if actor.coins >= 25 and not actor.item_slots.has(pid):
+			actor.buy_item(pid)
+			return

@@ -114,6 +114,17 @@ var fixing := false
 var blamed_once := false
 var delivery_boost_left := 0.0
 
+# 装备系统
+var coins := 0
+var item_slots: Array[int] = []
+var item_active_cds: Dictionary = {}  # item_id -> cd_left
+var catch_stack := 0  # 弹性工时叠层
+var _overtime_acc := 0.0  # 加班铃计时
+var _auto_task_acc := 0.0  # 居家办公自动任务计时
+var _flash_acc := 0.0  # 全域监控闪现计时
+var flash_reveal_left := 0.0
+var invisible_left := 0.0  # 摸鱼之王隐身
+
 var input_dir := Vector2.ZERO
 var want_interact := false
 var want_slack := false
@@ -125,6 +136,8 @@ var want_fan := false
 var want_incident := false
 var want_blame := false
 var want_fly := false
+var want_shop := false
+var want_active := -1  # item slot index for active skill
 
 var _sync_acc := 0.0
 var _remote_pos := Vector2.ZERO
@@ -168,6 +181,64 @@ func is_bot() -> bool:
 
 func office() -> OfficeMap:
 	return get_parent() as OfficeMap
+
+
+# ── 装备 buff 查询 ──
+func item_buff(key: String) -> float:
+	return ItemDB.total_buff(item_slots, key)
+
+func item_has(key: String) -> bool:
+	return ItemDB.has_buff(item_slots, key)
+
+func add_coins(amount: int) -> void:
+	coins = max(0, coins + amount)
+
+func buy_item(item_id: int) -> bool:
+	var d := ItemDB.get_item(item_id)
+	if d == null:
+		return false
+	if d.side == ItemDB.Side.EMPLOYEE and kind != Rules.Kind.EMPLOYEE:
+		return false
+	if d.side == ItemDB.Side.BOSS and kind != Rules.Kind.BOSS:
+		return false
+	# 尝试合成
+	if not d.recipe.is_empty():
+		if not ItemDB.can_combine(item_slots, item_id):
+			return false
+		if coins < d.combine_cost:
+			return false
+		coins -= d.combine_cost
+		for need_id in d.recipe:
+			var idx := item_slots.find(need_id)
+			if idx >= 0:
+				item_slots.remove_at(idx)
+		item_slots.append(item_id)
+		_apply_on_buy(d)
+		return true
+	# 直接购买基础件
+	if item_slots.size() >= ItemDB.MAX_SLOTS:
+		return false
+	if coins < d.cost:
+		return false
+	coins -= d.cost
+	item_slots.append(item_id)
+	_apply_on_buy(d)
+	return true
+
+func sell_item(slot_idx: int) -> bool:
+	if slot_idx < 0 or slot_idx >= item_slots.size():
+		return false
+	var item_id := item_slots[slot_idx]
+	var refund := ItemDB.sell_price(item_id)
+	item_slots.remove_at(slot_idx)
+	coins += refund
+	return true
+
+func _apply_on_buy(d: ItemDB.ItemDef) -> void:
+	if d.buffs.has("hours_reduce"):
+		hours = maxf(0.0, hours - float(d.buffs["hours_reduce"]))
+	if d.active_cd > 0.0:
+		item_active_cds[d.id] = 0.0
 
 
 func nearby_action() -> String:
@@ -231,7 +302,14 @@ func nearby_action() -> String:
 	if not Match.delivery_spots.is_empty():
 		for k in Match.delivery_spots:
 			if global_position.distance_to(Match.delivery_spots[k]) < 100.0:
-				return "E 抢外卖 · 回复精力 +3"
+				return "E 抢外卖 · 回复精力 +2"
+	# 贩卖机
+	if Match.elapsed >= ItemDB.SHOP_UNLOCK_TIME:
+		var omap := office()
+		if omap:
+			for key in ["shop_0", "shop_1"]:
+				if omap.points.has(key) and global_position.distance_to(omap.points[key]) < Rules.INTERACT_RANGE + 16.0:
+					return "E 打开贩卖机 · 💰%d" % coins
 	var map := office()
 	if map == null:
 		return ""
@@ -284,10 +362,19 @@ func nearby_action() -> String:
 
 
 func _boss_nearby_action() -> String:
+	if Match.elapsed >= ItemDB.SHOP_UNLOCK_TIME:
+		var shop_map := office()
+		if shop_map:
+			for key in ["shop_0", "shop_1"]:
+				if shop_map.points.has(key) and global_position.distance_to(shop_map.points[key]) < Rules.INTERACT_RANGE + 16.0:
+					return "E 打开贩卖机 · 💰%d" % coins
 	if lunge_stun > 0.05:
 		return "扑空硬直 %.1fs" % lunge_stun
 	if lunge_left > 0.0:
 		return "短扑中"
+	var talk := Match.nearest_talk(global_position, 220.0)
+	if talk != null and Match.is_watched(talk):
+		return "现场督导中 · 复盘加速"
 	if power_pips >= Rules.TIGER_POWER_MAX:
 		var mark: Actor = Match.meeting_target(self)
 		if mark != null:
@@ -875,6 +962,10 @@ func _server_tick(delta: float) -> void:
 	incident_cd = max(0.0, incident_cd - delta)
 	blame_timer = max(0.0, blame_timer - delta)
 	delivery_boost_left = max(0.0, delivery_boost_left - delta)
+	invisible_left = max(0.0, invisible_left - delta)
+	flash_reveal_left = max(0.0, flash_reveal_left - delta)
+	for k in item_active_cds.keys():
+		item_active_cds[k] = max(0.0, item_active_cds[k] - delta)
 	if kind == Rules.Kind.EMPLOYEE:
 		_tick_cells(delta)
 	trade_cd = max(0.0, trade_cd - delta)
@@ -892,6 +983,8 @@ func _server_tick(delta: float) -> void:
 	want_incident = false
 	want_blame = false
 	want_fly = false
+	want_shop = false
+	want_active = -1
 
 
 func _employee_tick(delta: float) -> void:
@@ -1036,6 +1129,11 @@ func _employee_tick(delta: float) -> void:
 		speed *= Rules.INTRANET_BOOST_MUL
 	if pack_hp > 0:
 		speed *= Rules.DOG_PACK_SPEED_MUL
+	var item_spd := item_buff("speed")
+	if item_spd > 0.0:
+		speed *= (1.0 + item_spd)
+	if item_has("sprint_threshold") and tasks_done >= Rules.TASK_COUNT - 1:
+		speed *= 1.25
 	speed = _slowed(speed)
 	if dash_left > 0.0:
 		velocity = dash_dir * _slowed(Rules.EMP_DASH_SPEED)
@@ -1064,14 +1162,39 @@ func _sit_work(delta: float, slack: bool) -> void:
 	var mul := 1.0
 	if coffee_buff > 0.0:
 		mul *= Rules.COFFEE_BUFF_MUL
+	# 装备：工作速度
+	var work_spd := item_buff("work_speed")
+	if work_spd > 0.0:
+		mul *= (1.0 + work_spd)
+	# 装备：番茄钟（连续工作 8s 后加速）
+	var tomato := item_buff("tomato_bonus")
+	if tomato > 0.0 and task_progress > 0.0:
+		var worked_sec := task_progress * Rules.TASK_TIME
+		if worked_sec >= 8.0:
+			mul *= (1.0 + tomato)
+	# 装备：被抓后工速叠加
+	var stack_bonus := item_buff("catch_stack_work")
+	if stack_bonus > 0.0 and catch_stack > 0:
+		mul *= (1.0 + stack_bonus * mini(catch_stack, 3))
+	# 装备：<15h 时加速
+	var low_thresh := item_buff("low_hours_threshold")
+	if low_thresh > 0.0 and hours < low_thresh:
+		mul *= (1.0 + item_buff("low_hours_boost"))
 	if supervised:
 		mul *= Rules.TIGER_SUPERVISE_MUL
+		# Boss 装备：监督区工速 -15%
+		if Match.actors.has(Rules.Slot.BOSS):
+			var boss: Actor = Match.actors[Rules.Slot.BOSS]
+			var sup_slow := boss.item_buff("supervise_slow")
+			if sup_slow > 0.0:
+				mul *= (1.0 - sup_slow)
 	task_progress = minf(1.0, task_progress + delta * mul / Rules.TASK_TIME)
 	_refresh_legacy()
 	if task_progress >= 1.0:
 		tasking = false
 		task_progress = 0.0
 		tasks_done = mini(tasks_done + 1, Rules.TASK_COUNT)
+		add_coins(ItemDB.COIN_TASK_DONE)
 		say("「%s」交了" % Rules.task_name(tasks_done - 1), 1.1)
 		_refresh_legacy()
 		if tasks_done >= Rules.TASK_COUNT:
@@ -1093,6 +1216,14 @@ func _try_employee_interact() -> void:
 		if Match.try_grab_delivery(slot):
 			say(Rules.DELIVERY_QUIPS[randi() % Rules.DELIVERY_QUIPS.size()], 1.5)
 			return
+	# 贩卖机
+	if Match.elapsed >= ItemDB.SHOP_UNLOCK_TIME and want_shop:
+		var map := office()
+		if map:
+			for key in ["shop_0", "shop_1"]:
+				if map.points.has(key) and global_position.distance_to(map.points[key]) < Rules.INTERACT_RANGE + 16.0:
+					want_shop = true
+					return
 	if Match.try_carry(self):
 		return
 	if Match.try_rescue(self):
@@ -1582,12 +1713,18 @@ func clear_rescue() -> void:
 
 
 func apply_talk_fail(repeat: bool) -> void:
+	var immune_thresh := item_buff("catch_immune_threshold")
+	if immune_thresh > 0.0 and task_progress >= immune_thresh:
+		say("还差一点就交了！", 1.0)
+		return
 	_abort_task("复盘完了，这单废了")
 	if repeat and tasks_done > 0:
 		tasks_done -= 1
 		say("连坐 · 又多一单", 1.3)
 	else:
 		say("复盘结束", 1.0)
+	var lock_reduce := item_buff("stand_lock_reduce")
+	stand_lock = Rules.CATCH_STAND_LOCK * (1.0 - lock_reduce)
 	catch_chain = Rules.CATCH_CHAIN_WINDOW
 	talk_progress = 0.0
 	review_step = 0
@@ -1595,6 +1732,13 @@ func apply_talk_fail(repeat: bool) -> void:
 	review_delay_left = 0.0
 	slack_seen = 0.0
 	emp_state = Rules.EmpState.WALK
+	if item_buff("catch_stack_work") > 0.0:
+		catch_stack = mini(catch_stack + 1, 3)
+	if Match.actors.has(Rules.Slot.BOSS):
+		var boss: Actor = Match.actors[Rules.Slot.BOSS]
+		var drain := int(boss.item_buff("catch_drain_energy"))
+		if drain > 0:
+			energy_cells = maxi(0, energy_cells - drain)
 	_refresh_legacy()
 
 
@@ -1835,9 +1979,14 @@ func _boss_tick(delta: float) -> void:
 	if lunge_left > 0.0:
 		_tick_boss_lunge(delta)
 		return
+	var dash_cd_r := item_buff("dash_cd_reduce")
 	if want_dash:
-		_start_dash(Rules.TIGER_DASH_CD, Rules.TIGER_DASH_TIME)
+		var cd := Rules.TIGER_DASH_CD * (1.0 - dash_cd_r)
+		_start_dash(cd, Rules.TIGER_DASH_TIME)
 	var speed := Rules.BOSS_BASE_SPEED * Rules.TIGER_SPEED_MUL
+	var boss_spd := item_buff("speed")
+	if boss_spd > 0.0:
+		speed *= (1.0 + boss_spd)
 	if dash_left > 0.0:
 		velocity = dash_dir * Rules.TIGER_DASH_SPEED
 	else:
@@ -1845,6 +1994,11 @@ func _boss_tick(delta: float) -> void:
 	move_and_slide()
 	if velocity.length() > 8.0:
 		_facing = velocity.normalized()
+	# 门禁卡：自动开门
+	if item_has("auto_door") and office():
+		var door = office().nearest_door(global_position, Rules.DOOR_RANGE)
+		if door != null and door.closed:
+			office().try_door(self)
 	if want_interact:
 		if not Match.delivery_spots.is_empty():
 			Match.try_grab_delivery(slot)
@@ -1893,8 +2047,9 @@ func _boss_support_skills() -> void:
 		kpi_cd = Rules.KPI_CD
 		kpi_flash = 1.6
 	if want_report and report_cd <= 0.0:
+		var rcd_r := item_buff("report_cd_reduce")
 		if Match.try_throw_reports(self, false):
-			report_cd = Rules.REPORT_CD
+			report_cd = Rules.REPORT_CD * (1.0 - rcd_r)
 			throw_flash = Rules.TIGER_THROW_POSE
 	if want_fan and fan_cd <= 0.0:
 		if Match.try_throw_reports(self, true):

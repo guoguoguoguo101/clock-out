@@ -103,6 +103,7 @@ func _process(delta: float) -> void:
 		if incident_active:
 			_tick_incident(delta)
 		_tick_random_events(delta)
+		_tick_item_passives(delta)
 		for bot in bots:
 			bot.tick(delta)
 		_sync_clock.rpc(phase, elapsed, time_left, 0.0)
@@ -275,6 +276,7 @@ func _spawn_all() -> void:
 			office.take_spot(seat_id, int(s))
 			actor._refresh_legacy()
 		actors[int(s)] = actor
+		actor.coins = ItemDB.COIN_START
 		spawn_actor.rpc(int(s), pid, pname, actor.global_position.x, actor.global_position.y, actor.emp_state)
 		if pid == 0:
 			if int(s) == Rules.Slot.BOSS:
@@ -393,6 +395,14 @@ func is_supervised(emp: Actor) -> bool:
 	var dist := Rules.SUPERVISE_DIST
 	if incident_active:
 		dist *= Rules.INCIDENT_BOSS_RANGE_MUL
+	# Boss 装备加监督范围
+	var boss_range_bonus := boss.item_buff("supervise_range")
+	if boss_range_bonus > 0.0:
+		dist *= (1.0 + boss_range_bonus)
+	# 员工装备缩减监督范围
+	var emp_shrink := emp.item_buff("supervise_shrink")
+	if emp_shrink > 0.0:
+		dist *= (1.0 - emp_shrink)
 	if boss.global_position.distance_to(emp.global_position) <= dist:
 		return true
 	var sid := emp.occupy_id
@@ -484,13 +494,17 @@ func start_lunge(boss: Actor) -> bool:
 func lunge_victim(boss: Actor, from: Vector2, to: Vector2) -> Actor:
 	var best: Actor = null
 	var best_t := 999.0
+	var radius := Rules.TIGER_LUNGE_RADIUS
+	var range_bonus := boss.item_buff("catch_range")
+	if range_bonus > 0.0:
+		radius *= (1.0 + range_bonus)
 	for a in actors.values():
 		var e := a as Actor
 		if e == boss or not is_lunge_target(e):
 			continue
 		var t := _along_segment(e.global_position, from, to)
 		var d := _dist_point_segment(e.global_position, from, to)
-		if d > Rules.TIGER_LUNGE_RADIUS:
+		if d > radius:
 			continue
 		if t < best_t:
 			best_t = t
@@ -509,6 +523,7 @@ func grab_lunge(boss: Actor, emp: Actor) -> void:
 	spawn_fx(Rules.FX_STAMP, emp.global_position, 0.7, 0.1, -36.0)
 	audit_hit.rpc(emp.slot, boss.dash_dir.x, boss.dash_dir.y)
 	start_talk(emp)
+	boss.add_coins(ItemDB.COIN_CATCH)
 	lunge_event.rpc(boss.slot, boss.dash_dir.x, boss.dash_dir.y, false)
 
 
@@ -1620,6 +1635,48 @@ func notify_delivery_grab(slot: int, is_boss: bool) -> void:
 		if not is_boss:
 			a.energy_cells = mini(a.energy_cells + 2, Rules.ENERGY_CELLS)
 			a.delivery_boost_left = Rules.DELIVERY_BOOST_TIME
+
+
+# ── 装备被动效果 tick ──
+func _tick_item_passives(delta: float) -> void:
+	if not actors.has(Rules.Slot.BOSS):
+		return
+	var boss: Actor = actors[Rules.Slot.BOSS]
+
+	# 加班铃 / 996 / 永远的甲方：定时给全员加工时
+	var ot_interval := boss.item_buff("overtime_interval")
+	var ot_hours := boss.item_buff("overtime_hours")
+	if ot_interval > 0.0 and ot_hours > 0.0:
+		boss._overtime_acc += delta
+		if boss._overtime_acc >= ot_interval:
+			boss._overtime_acc -= ot_interval
+			for s in Rules.EMPLOYEE_SLOTS:
+				if actors.has(s):
+					var e := actors[s] as Actor
+					if e.emp_state != Rules.EmpState.LEFT:
+						e.hours = minf(Rules.HOURS_START, e.hours + ot_hours)
+
+	# 全域监控：定时闪现全员位置
+	var flash_interval := boss.item_buff("flash_interval")
+	var flash_dur := boss.item_buff("flash_duration")
+	if flash_interval > 0.0:
+		boss._flash_acc += delta
+		if boss._flash_acc >= flash_interval:
+			boss._flash_acc -= flash_interval
+			boss.flash_reveal_left = flash_dur
+
+	# 居家办公证：员工自动做任务
+	for s in Rules.EMPLOYEE_SLOTS:
+		if not actors.has(s):
+			continue
+		var e := actors[s] as Actor
+		var auto_pct := e.item_buff("auto_task_pct")
+		var auto_interval := e.item_buff("auto_task_interval")
+		if auto_pct > 0.0 and auto_interval > 0.0 and e.tasking:
+			e._auto_task_acc += delta
+			if e._auto_task_acc >= auto_interval:
+				e._auto_task_acc -= auto_interval
+				e.task_progress = minf(1.0, e.task_progress + auto_pct)
 
 
 func on_clock_out(slot: int) -> void:
